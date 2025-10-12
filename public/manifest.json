@@ -1,0 +1,21 @@
+{
+  "name": "Deudas App",
+  "short_name": "Deudas",
+  "description": "Una aplicación simple para seguir tus deudas.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#E9F6FE",
+  "theme_color": "#2596E5",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
