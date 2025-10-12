@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* 
+      Puedes cambiar estos colores para personalizar el tema.
+      Usa valores HSL (Hue, Saturation, Lightness).
+      Herramienta para generar colores: https://hslpicker.com/
+    */
+    --background: 206 92% 94%;
+    --foreground: 224 71% 4%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 71% 4%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 71% 4%;
+    --primary: 207 88% 54%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 207 80% 88%;
+    --secondary-foreground: 224 71% 4%;
+    --muted: 207 80% 88%;
+    --muted-foreground: 224 71% 15%;
+    --accent: 174 45% 48%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 207 88% 84%;
+    --input: 207 88% 84%;
+    --ring: 174 45% 48%;
+    --chart-1: 207 88% 54%;
+    --chart-2: 174 45% 48%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222 84% 5%;
+    --foreground: 210 40% 98%;
+    --card: 222 84% 5%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 84% 5%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 207 88% 74%;
+    --primary-foreground: 224 71% 4%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 174 45% 48%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 217 33% 27%;
+    --input: 217 33% 27%;
+    --ring: 174 45% 48%;
+    --chart-1: 207 88% 74%;
+    --chart-2: 174 45% 48%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
