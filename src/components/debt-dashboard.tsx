@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
@@ -53,7 +54,7 @@ export default function DebtDashboard() {
   const { data: debts, isLoading: isLoadingDebtsData } = useCollection<Debt>(debtsRef);
   const { data: settlements, isLoading: isLoadingSettlements } = useCollection<Settlement>(settlementsRef);
 
-  const handleAddDebt = (newDebt: Omit<Debt, 'id' | 'payments' | 'createdAt' | 'userId' | 'debtorName'>) => {
+  const handleAddDebt = (newDebt: Omit<Debt, 'id' | 'payments' | 'createdAt' | 'userId'>) => {
     if (!debtsRef || !user || !debtors) return;
     const debtor = debtors.find(d => d.id === newDebt.debtorId);
     if (!debtor) return;
@@ -132,9 +133,9 @@ export default function DebtDashboard() {
     const settlementPaymentId = `settle_${settlementId}`;
     
     // Debts where I owe money (iou)
-    const iouDebts = debts.filter(d => d.debtorId === debtorId && d.type === 'iou' && (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) > 0.01);
+    const iouDebts = debts.filter(d => d.debtorId === debtorId && d.type === 'iou' && !d.isSettled);
     // Debts where they owe me money (uome)
-    const uomeDebts = debts.filter(d => d.debtorId === debtorId && d.type === 'uome' && (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) > 0.01);
+    const uomeDebts = debts.filter(d => d.debtorId === debtorId && d.type === 'uome' && !d.isSettled);
 
     let debtsToCredit: Debt[];
     let debtsToDebit: Debt[];
@@ -207,7 +208,7 @@ export default function DebtDashboard() {
         const error = new FirestorePermissionError({
             path: `users/${user.uid}/settlements/${settlementId}`,
             operation: 'write',
-            requestResourceData: newSettlement
+            requestResourceData: { iouTotal, uomeTotal, currency, debtorId }
         });
         errorEmitter.emit('permission-error', error);
     }
@@ -419,10 +420,18 @@ export default function DebtDashboard() {
                     <TabsTrigger value="debtors">Contactos</TabsTrigger>
                 </TabsList>
             </div>
-            {activeTab === 'overview' && <TabsContent value="overview">{renderContent()}</TabsContent>}
-            {activeTab === 'all-debts' && <TabsContent value="all-debts">{renderContent()}</TabsContent>}
-            {activeTab === 'history' && <TabsContent value="history">{renderContent()}</TabsContent>}
-            {activeTab === 'debtors' && <TabsContent value="debtors">{renderContent()}</TabsContent>}
+            <TabsContent value="overview" forceMount={activeTab === 'overview'}>
+              {renderContent()}
+            </TabsContent>
+            <TabsContent value="all-debts" forceMount={activeTab === 'all-debts'}>
+              {renderContent()}
+            </TabsContent>
+             <TabsContent value="history" forceMount={activeTab === 'history'}>
+              {renderContent()}
+            </TabsContent>
+            <TabsContent value="debtors" forceMount={activeTab === 'debtors'}>
+              {renderContent()}
+            </TabsContent>
         </Tabs>
       </main>
     </div>
