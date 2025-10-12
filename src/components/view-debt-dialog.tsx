@@ -138,7 +138,7 @@ export function ViewDebtDialog({ debt, children, onEditPayment, onDeletePayment 
                           {debt.payments.map((payment) => (
                             <li key={payment.id} className="flex justify-between items-center p-2 rounded-md bg-secondary/80">
                               <div className="flex-1 flex items-center gap-2">
-                                {payment.isSettlement && <Scale className="h-4 w-4 text-muted-foreground" title="Pago de cruce" />}
+                                {payment.isSettlement && <span title="Pago de cruce"><Scale className="h-4 w-4 text-muted-foreground" /></span>}
                                 <div>
                                     <span className="font-semibold">{formatCurrency(payment.amount, debt.currency)}</span>
                                     <span className="text-muted-foreground block text-xs">
