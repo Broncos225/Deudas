@@ -420,18 +420,10 @@ export default function DebtDashboard() {
                     <TabsTrigger value="debtors">Contactos</TabsTrigger>
                 </TabsList>
             </div>
-            <TabsContent value="overview" forceMount={activeTab === 'overview'}>
-              {renderContent()}
-            </TabsContent>
-            <TabsContent value="all-debts" forceMount={activeTab === 'all-debts'}>
-              {renderContent()}
-            </TabsContent>
-             <TabsContent value="history" forceMount={activeTab === 'history'}>
-              {renderContent()}
-            </TabsContent>
-            <TabsContent value="debtors" forceMount={activeTab === 'debtors'}>
-              {renderContent()}
-            </TabsContent>
+            {activeTab === 'overview' && <TabsContent value="overview">{renderContent()}</TabsContent>}
+            {activeTab === 'all-debts' && <TabsContent value="all-debts">{renderContent()}</TabsContent>}
+            {activeTab === 'history' && <TabsContent value="history">{renderContent()}</TabsContent>}
+            {activeTab === 'debtors' && <TabsContent value="debtors">{renderContent()}</TabsContent>}
         </Tabs>
       </main>
     </div>
