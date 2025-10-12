@@ -54,7 +54,7 @@ export default function DebtDashboard() {
   const { data: debts, isLoading: isLoadingDebtsData } = useCollection<Debt>(debtsRef);
   const { data: settlements, isLoading: isLoadingSettlements } = useCollection<Settlement>(settlementsRef);
 
-  const handleAddDebt = (newDebt: Omit<Debt, 'id' | 'payments' | 'createdAt' | 'userId'>) => {
+  const handleAddDebt = (newDebt: Omit<Debt, 'id' | 'payments' | 'createdAt' | 'userId' | 'debtorName'>) => {
     if (!debtsRef || !user || !debtors) return;
     const debtor = debtors.find(d => d.id === newDebt.debtorId);
     if (!debtor) return;
@@ -133,9 +133,9 @@ export default function DebtDashboard() {
     const settlementPaymentId = `settle_${settlementId}`;
     
     // Debts where I owe money (iou)
-    const iouDebts = debts.filter(d => d.debtorId === debtorId && d.type === 'iou' && !d.isSettled);
+    const iouDebts = debts.filter(d => d.debtorId === debtorId && d.type === 'iou' && (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) > 0.01);
     // Debts where they owe me money (uome)
-    const uomeDebts = debts.filter(d => d.debtorId === debtorId && d.type === 'uome' && !d.isSettled);
+    const uomeDebts = debts.filter(d => d.debtorId === debtorId && d.type === 'uome' && (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) > 0.01);
 
     let debtsToCredit: Debt[];
     let debtsToDebit: Debt[];
@@ -208,7 +208,7 @@ export default function DebtDashboard() {
         const error = new FirestorePermissionError({
             path: `users/${user.uid}/settlements/${settlementId}`,
             operation: 'write',
-            requestResourceData: { iouTotal, uomeTotal, currency, debtorId }
+            requestResourceData: newSettlement
         });
         errorEmitter.emit('permission-error', error);
     }
