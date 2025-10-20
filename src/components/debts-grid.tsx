@@ -98,8 +98,10 @@ export function DebtsGrid({
 
   if (isLoading) {
     return (
-        <div className="flex items-center justify-center p-8">
-            <Loader className="h-6 w-6 animate-spin text-primary" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mt-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+                <Card key={i}><CardHeader><div className="h-6 w-1/2 bg-muted rounded-md animate-pulse"></div></CardHeader><CardContent><div className="h-10 w-full bg-muted rounded-md animate-pulse"></div></CardContent><CardFooter><div className="h-8 w-full bg-muted rounded-md animate-pulse"></div></CardFooter></Card>
+            ))}
         </div>
     );
   }
@@ -107,8 +109,8 @@ export function DebtsGrid({
   if (debts.length === 0) {
     return (
         <div className="text-center py-10 col-span-full">
-            <CheckCircle className="mx-auto h-12 w-12 text-green-500" />
-            <p className="text-muted-foreground mt-4">{showSettled ? "No hay deudas saldadas en el historial." : "¡Felicidades! No tienes deudas activas."}</p>
+            <CheckCircle className="mx-auto h-12 w-12 text-muted-foreground" />
+            <p className="text-muted-foreground mt-4">{showSettled ? "No hay deudas saldadas que coincidan." : "No se encontraron deudas activas."}</p>
         </div>
     )
   }
@@ -215,3 +217,5 @@ export function DebtsGrid({
     </div>
   );
 }
+
+    

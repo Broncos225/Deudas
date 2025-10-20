@@ -68,6 +68,9 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
                 applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
             });
             
+            // Log the subscription object to the console for debugging
+            console.log('Push Subscription:', subscription.toJSON());
+            
             const subscriptionsRef = collection(firestore, 'users', user.uid, 'subscriptions');
             await addDoc(subscriptionsRef, JSON.parse(JSON.stringify(subscription)));
 
@@ -91,12 +94,15 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
 
 
     return (
-        <header className="sticky top-0 flex h-14 md:h-16 items-center gap-4 border-b bg-background px-4 md:px-6 z-10">
-            <a href="#" className="flex items-center gap-2 font-semibold">
-                <HandCoins className="h-5 w-5 md:h-6 md:w-6 text-primary" />
-                <span className="font-headline text-base md:text-lg">Deudas</span>
+        <header className="sticky top-0 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6 z-10">
+            <a href="#" className="flex items-center gap-2 font-semibold text-lg">
+                <HandCoins className="h-6 w-6 text-primary" />
+                <span className="font-headline hidden md:inline-block">Deudas</span>
             </a>
-            <div className="ml-auto flex items-center gap-2">
+            <div className="flex w-full flex-1 items-center gap-4 md:ml-auto md:gap-2 lg:gap-4">
+                <div className="flex-1 ml-auto md:grow-0">
+                  {/* Search bar removed from here */}
+                </div>
                 {addDebtDialog}
                 <ThemeToggle />
                 {user && (

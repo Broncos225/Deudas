@@ -77,9 +77,27 @@ export function DebtsList({
 
   if (isLoading) {
     return (
-        <div className="flex items-center justify-center p-8">
-            <Loader className="h-6 w-6 animate-spin text-primary" />
-        </div>
+        <Card className="mt-4">
+            <CardContent className="p-0">
+                <div className="space-y-2">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                        <div key={i} className="grid grid-cols-[2fr,1fr,1fr,1fr,auto] gap-4 items-center p-4">
+                            <div className="flex items-center gap-2">
+                                <div className="h-4 w-4 bg-muted rounded-md animate-pulse"></div>
+                                <div className="space-y-1">
+                                    <div className="h-4 w-24 bg-muted rounded-md animate-pulse"></div>
+                                    <div className="h-3 w-16 bg-muted rounded-md animate-pulse"></div>
+                                </div>
+                            </div>
+                            <div className="h-4 w-20 bg-muted rounded-md animate-pulse ml-auto"></div>
+                            <div className="h-4 w-20 bg-muted rounded-md animate-pulse ml-auto"></div>
+                            <div className="h-4 w-24 bg-muted rounded-md animate-pulse mx-auto"></div>
+                            <div className="h-8 w-8 bg-muted rounded-md animate-pulse"></div>
+                        </div>
+                    ))}
+                </div>
+            </CardContent>
+        </Card>
     );
   }
 
@@ -87,7 +105,7 @@ export function DebtsList({
     return (
         <div className="text-center py-10 col-span-full">
             <CheckCircle className="mx-auto h-12 w-12 text-green-500" />
-            <p className="text-muted-foreground mt-4">¡Felicidades! No tienes deudas pendientes.</p>
+            <p className="text-muted-foreground mt-4">No se encontraron deudas.</p>
         </div>
     )
   }
@@ -132,7 +150,7 @@ export function DebtsList({
 
                             {/* Due Date - Mobile & Desktop */}
                             <div className="text-xs text-muted-foreground flex items-center gap-1 col-span-2 md:col-span-1 md:text-center md:justify-center">
-                                {debt.dueDate ? (
+                                {debt.dueDate && !isPaid ? (
                                     <>
                                         <Bell className="h-3 w-3" />
                                         <ClientFormattedDate date={debt.dueDate} />

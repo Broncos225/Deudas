@@ -7,7 +7,7 @@ import type { Debt, Payment, Debtor, Settlement } from '@/lib/types';
 import DashboardHeader from '@/components/dashboard-header';
 import { DebtsGrid } from '@/components/debts-grid';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowDownLeft, ArrowUpRight, LayoutGrid, List, Loader, PlusCircle } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, LayoutGrid, List, Loader, PlusCircle, FileDown } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking, useUser } from '@/firebase';
 import { collection, doc, Timestamp, writeBatch } from 'firebase/firestore';
@@ -22,6 +22,9 @@ import { FirestorePermissionError } from '@/firebase/errors';
 import { DebtsChart } from './debts-chart';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 import { DebtsList } from './debts-list';
+import { DebtFilters, type Filters } from './debt-filters';
+import { exportToCSV, exportToPDF } from '@/lib/export';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 
 
 export default function DebtDashboard() {
@@ -31,6 +34,12 @@ export default function DebtDashboard() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("overview");
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filters, setFilters] = useState<Filters>({
+    type: 'all',
+    currency: 'all',
+    debtorId: 'all',
+  });
 
 
   useEffect(() => {
@@ -294,6 +303,26 @@ export default function DebtDashboard() {
     deleteDocumentNonBlocking(debtorDocRef);
   };
 
+  const filteredDebts = useMemo(() => {
+    if (!debts) return [];
+    const query = searchQuery.toLowerCase();
+    
+    return debts.filter(debt => {
+        // Search filter
+        const matchesSearch = query === "" ||
+            debt.concept.toLowerCase().includes(query) ||
+            debt.debtorName.toLowerCase().includes(query) ||
+            (debt.items && debt.items.some(item => item.name.toLowerCase().includes(query)));
+
+        // Other filters
+        const matchesType = filters.type === 'all' || debt.type === filters.type;
+        const matchesCurrency = filters.currency === 'all' || debt.currency === filters.currency;
+        const matchesDebtor = filters.debtorId === 'all' || debt.debtorId === filters.debtorId;
+
+        return matchesSearch && matchesType && matchesCurrency && matchesDebtor;
+    });
+}, [debts, searchQuery, filters]);
+
 
   if (isUserLoading || !user) {
     return (
@@ -308,7 +337,7 @@ export default function DebtDashboard() {
     <AddDebtDialog onAddDebt={handleAddDebt} onEditDebt={handleEditDebt} debtors={debtors || []}>
         <Button size="sm" className="gap-1 bg-accent hover:bg-accent/90 text-accent-foreground text-xs md:text-sm" disabled={!debtors || debtors.length === 0}>
             <PlusCircle className="h-4 w-4" />
-            Agregar Deuda
+            <span className="hidden md:inline">Agregar Deuda</span>
         </Button>
     </AddDebtDialog>
   );
@@ -316,7 +345,7 @@ export default function DebtDashboard() {
   const isLoading = isLoadingDebtors || isLoadingDebtsData || isLoadingSettlements;
   
   const renderContentForDebts = (isSettled: boolean) => {
-    const filteredDebts = debts?.filter(d => {
+    const finalFilteredDebts = filteredDebts?.filter(d => {
         const remaining = d.amount - d.payments.reduce((s, p) => s + p.amount, 0);
         const isPaid = remaining <= 0.01;
         return isSettled ? isPaid : !isPaid;
@@ -324,7 +353,7 @@ export default function DebtDashboard() {
 
     if (viewMode === 'list') {
         return <DebtsList
-            debts={filteredDebts}
+            debts={finalFilteredDebts}
             debtors={debtors || []}
             onAddPayment={handleAddPayment}
             onEditDebt={handleEditDebt}
@@ -336,7 +365,7 @@ export default function DebtDashboard() {
     }
     
     return <DebtsGrid 
-        debts={filteredDebts}
+        debts={finalFilteredDebts}
         debtors={debtors || []}
         onAddPayment={handleAddPayment} 
         onEditDebt={handleEditDebt}
@@ -389,26 +418,53 @@ export default function DebtDashboard() {
             <div className="flex items-center justify-between flex-wrap gap-2">
                 <TabsList>
                     <TabsTrigger value="overview">Resumen</TabsTrigger>
-                    <TabsTrigger value="all-debts">Deudas Activas</TabsTrigger>
+                    <TabsTrigger value="all-debts">Deudas</TabsTrigger>
                     <TabsTrigger value="history">Historial</TabsTrigger>
                     <TabsTrigger value="debtors">Contactos</TabsTrigger>
                 </TabsList>
                 {(activeTab === 'all-debts' || activeTab === 'history') && (
-                    <ToggleGroup 
-                        type="single" 
-                        value={viewMode} 
-                        onValueChange={(value) => value && setViewMode(value as 'grid' | 'list')}
-                        className="gap-1"
-                    >
-                        <ToggleGroupItem value="grid" aria-label="Grid view">
-                            <LayoutGrid className="h-4 w-4" />
-                        </ToggleGroupItem>
-                        <ToggleGroupItem value="list" aria-label="List view">
-                            <List className="h-4 w-4" />
-                        </ToggleGroupItem>
-                    </ToggleGroup>
+                    <div className="flex items-center gap-2">
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm" className="gap-1">
+                                    <FileDown className="h-4 w-4" />
+                                    <span className="hidden sm:inline">Exportar</span>
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent>
+                                <DropdownMenuItem onSelect={() => exportToPDF(filteredDebts, { totalIOwe, totalOwedToMe })}>
+                                    Exportar a PDF
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => exportToCSV(filteredDebts)}>
+                                    Exportar a CSV
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                        <ToggleGroup 
+                            type="single" 
+                            value={viewMode} 
+                            onValueChange={(value) => value && setViewMode(value as 'grid' | 'list')}
+                            className="gap-1"
+                        >
+                            <ToggleGroupItem value="grid" aria-label="Grid view">
+                                <LayoutGrid className="h-4 w-4" />
+                            </ToggleGroupItem>
+                            <ToggleGroupItem value="list" aria-label="List view">
+                                <List className="h-4 w-4" />
+                            </ToggleGroupItem>
+                        </ToggleGroup>
+                    </div>
                 )}
             </div>
+             {(activeTab === 'all-debts' || activeTab === 'history') && (
+              <DebtFilters
+                filters={filters}
+                onFilterChange={setFilters}
+                debtors={debtors || []}
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+              />
+            )}
             <TabsContent value="overview" forceMount={activeTab === 'overview'}>
               <div className="space-y-4">
                 <DebtsByPerson
@@ -448,3 +504,5 @@ export default function DebtDashboard() {
     </div>
   );
 }
+
+    
