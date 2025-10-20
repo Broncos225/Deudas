@@ -11,8 +11,8 @@
           "description": "The ID of the debtor."
         },
         "debtorName": {
-            "type": "string",
-            "description": "The denormalized name of the debtor for easy display."
+          "type": "string",
+          "description": "The denormalized name of the debtor for easy display."
         },
         "concept": {
           "type": "string",
@@ -29,11 +29,19 @@
         "type": {
           "type": "string",
           "description": "The type of debt: 'iou' (I owe you) or 'uome' (you owe me).",
-          "enum": ["iou", "uome"]
+          "enum": [
+            "iou",
+            "uome"
+          ]
         },
         "createdAt": {
           "type": "string",
           "description": "The date when the debt was created.",
+          "format": "date-time"
+        },
+        "dueDate": {
+          "type": "string",
+          "description": "The optional due date for the debt.",
           "format": "date-time"
         },
         "receiptUrl": {
@@ -41,23 +49,30 @@
           "description": "URL of the receipt image.",
           "format": "uri"
         },
+        "items": {
+          "type": "array",
+          "description": "An optional list of items detailing the composition of the debt.",
+          "items": {
+            "$ref": "#/entities/Item"
+          }
+        },
         "payments": {
-            "type": "array",
-            "items": {
-                "$ref": "#/entities/Payment"
-            }
+          "type": "array",
+          "items": {
+            "$ref": "#/entities/Payment"
+          }
         },
         "userId": {
-            "type": "string",
-            "description": "The ID of the user who owns this debt."
+          "type": "string",
+          "description": "The ID of the user who owns this debt."
         },
         "isSettled": {
-            "type": "boolean",
-            "description": "Flag to know if a debt was part of a settlement"
+          "type": "boolean",
+          "description": "Flag to know if a debt was part of a settlement"
         },
         "settlementId": {
-            "type": "string",
-            "description": "Which settlement it was part of"
+          "type": "string",
+          "description": "Which settlement it was part of"
         }
       },
       "required": [
@@ -69,6 +84,26 @@
         "type",
         "createdAt",
         "userId"
+      ]
+    },
+    "Item": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Item",
+      "type": "object",
+      "description": "Represents a single item within a debt, such as a product or a specific concept with its own value.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the product or concept."
+        },
+        "value": {
+          "type": "number",
+          "description": "The cost of this specific item."
+        }
+      },
+      "required": [
+        "name",
+        "value"
       ]
     },
     "Payment": {
@@ -96,12 +131,12 @@
           "format": "uri"
         },
         "isSettlement": {
-            "type": "boolean",
-            "description": "Flag to identify settlement payments."
+          "type": "boolean",
+          "description": "Flag to identify settlement payments."
         },
         "settlementId": {
-            "type": "string",
-            "description": "ID of the settlement event."
+          "type": "string",
+          "description": "ID of the settlement event."
         }
       },
       "required": [
@@ -127,68 +162,124 @@
         "type": {
           "type": "string",
           "description": "The type of contact: 'person' or 'entity'.",
-          "enum": ["person", "entity"]
+          "enum": [
+            "person",
+            "entity"
+          ]
         },
         "userId": {
           "type": "string",
           "description": "The ID of the user who owns this debtor."
+        },
+        "paymentMethod": {
+          "type": "string",
+          "description": "The preferred payment method for the debtor.",
+          "enum": [
+            "efectivo",
+            "virtual"
+          ]
+        },
+        "paymentInfo": {
+          "type": "string",
+          "description": "Details for virtual payment, like account number or phone number."
         }
       },
       "required": [
         "name",
         "type",
-        "userId"
+        "userId",
+        "paymentMethod"
       ]
     },
     "Settlement": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "Settlement",
-        "type": "object",
-        "description": "Represents a settlement event where debts between a user and a debtor are crossed.",
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "Unique identifier for the Settlement event."
-          },
-          "debtorId": {
-            "type": "string",
-            "description": "The ID of the debtor involved in the settlement."
-          },
-          "date": {
-            "type": "string",
-            "description": "The date when the settlement occurred.",
-            "format": "date-time"
-          },
-          "amountSettled": {
-            "type": "number",
-            "description": "The total amount that was mutually cancelled out."
-          },
-          "currency": {
-            "type": "string",
-            "description": "The currency of the settlement."
-          },
-          "newDebtId": {
-            "type": "string",
-            "description": "The ID of the new debt created for the remaining balance, if any."
-          },
-          "userId": {
-            "type": "string",
-            "description": "The ID of the user who performed the settlement."
-          }
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Settlement",
+      "type": "object",
+      "description": "Represents a settlement event where debts between a user and a debtor are crossed.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Settlement event."
         },
-        "required": [
-          "id",
-          "debtorId",
-          "date",
-          "amountSettled",
-          "currency",
-          "userId"
-        ]
-      }
+        "debtorId": {
+          "type": "string",
+          "description": "The ID of the debtor involved in the settlement."
+        },
+        "date": {
+          "type": "string",
+          "description": "The date when the settlement occurred.",
+          "format": "date-time"
+        },
+        "amountSettled": {
+          "type": "number",
+          "description": "The total amount that was mutually cancelled out."
+        },
+        "currency": {
+          "type": "string",
+          "description": "The currency of the settlement."
+        },
+        "newDebtId": {
+          "type": "string",
+          "description": "The ID of the new debt created for the remaining balance, if any."
+        },
+        "userId": {
+          "type": "string",
+          "description": "The ID of the user who performed the settlement."
+        }
+      },
+      "required": [
+        "id",
+        "debtorId",
+        "date",
+        "amountSettled",
+        "currency",
+        "userId"
+      ]
+    },
+    "PushSubscription": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Push Subscription",
+      "type": "object",
+      "description": "Represents a Web Push Protocol subscription object for a specific device.",
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "The unique URL for the push service."
+        },
+        "expirationTime": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The expiration time of the subscription, if any."
+        },
+        "keys": {
+          "type": "object",
+          "properties": {
+            "p256dh": {
+              "type": "string",
+              "description": "The P-256 DH public key."
+            },
+            "auth": {
+              "type": "string",
+              "description": "The authentication secret."
+            }
+          },
+          "required": [
+            "p256dh",
+            "auth"
+          ]
+        }
+      },
+      "required": [
+        "endpoint",
+        "keys"
+      ]
+    }
   },
   "auth": {
     "providers": [
-      "password"
+      "google.com"
     ]
   },
   "firestore": {
@@ -213,6 +304,13 @@
           "$ref": "#/entities/Settlement"
         },
         "description": "Stores the history of debt settlement events."
+      },
+      {
+        "path": "/users/{userId}/subscriptions/{subscriptionId}",
+        "schema": {
+          "$ref": "#/entities/PushSubscription"
+        },
+        "description": "Stores the web push subscriptions for a user's devices."
       }
     ]
   }

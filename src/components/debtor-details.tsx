@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { Debtor } from "@/lib/types";
@@ -8,7 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { User, Mail, Phone, MoreHorizontal, Edit, Trash2, Building, Loader } from "lucide-react";
+import { User, Mail, Phone, MoreHorizontal, Edit, Trash2, Building, Loader, CreditCard, Banknote } from "lucide-react";
 import { AddDebtorDialog } from "./add-debtor-dialog";
 import {
   DropdownMenu,
@@ -48,14 +49,28 @@ export function DebtorDetails({ debtors, onAddDebtor, onEditDebtor, onDeleteDebt
               <div className="p-2 bg-secondary rounded-full">
                  {debtor.type === 'person' ? <User className="h-5 w-5 text-secondary-foreground" /> : <Building className="h-5 w-5 text-secondary-foreground" />}
               </div>
-              <div>
+              <div className="flex-1">
                   <p className="font-semibold">{debtor.name}</p>
-                  {debtor.contact && (
-                      <p className="text-sm text-muted-foreground flex items-center gap-1">
-                          {debtor.contact.includes('@') ? <Mail className="h-3 w-3" /> : <Phone className="h-3 w-3" />}
-                          {debtor.contact}
-                      </p>
-                  )}
+                  <div className="text-sm text-muted-foreground space-y-1">
+                    {debtor.contact && (
+                        <p className="flex items-center gap-1">
+                            {debtor.contact.includes('@') ? <Mail className="h-3 w-3" /> : <Phone className="h-3 w-3" />}
+                            {debtor.contact}
+                        </p>
+                    )}
+                    {debtor.paymentMethod === 'virtual' && debtor.paymentInfo && (
+                         <p className="flex items-center gap-1">
+                            <CreditCard className="h-3 w-3" />
+                            {debtor.paymentInfo}
+                        </p>
+                    )}
+                     {debtor.paymentMethod === 'efectivo' && (
+                         <p className="flex items-center gap-1">
+                            <Banknote className="h-3 w-3" />
+                            Efectivo
+                        </p>
+                    )}
+                  </div>
               </div>
           </div>
           <div>

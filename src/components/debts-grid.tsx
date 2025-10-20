@@ -1,10 +1,11 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
 import type { Debt, Debtor, Payment } from "@/lib/types";
 import { format, isValid, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
-import { MoreHorizontal, Edit, Trash2, ArrowDownLeft, ArrowUpRight, Wallet, Loader, CheckCircle } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, ArrowDownLeft, ArrowUpRight, Wallet, Loader, CheckCircle, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -33,16 +34,16 @@ import { DeleteDebtAlertDialog } from './delete-debt-alert-dialog';
 interface DebtsGridProps {
   debts: Debt[];
   debtors: Debtor[];
-  onAddPayment: (debtId: string, newPayment: Omit<Payment, 'id' | 'date'>) => void;
+  onAddPayment: (debtId: string, newPayment: Omit<Payment, 'id'>) => void;
   onEditDebt: (debtId: string, updatedDebt: Partial<Omit<Debt, 'id'>>, debtorName: string) => void;
   onDeleteDebt: (debtId: string) => void;
-  onEditPayment: (debtId: string, paymentId: string, updatedPayment: Partial<Omit<Payment, 'id' | 'date'>>) => void;
+  onEditPayment: (debtId: string, paymentId: string, updatedPayment: Partial<Omit<Payment, 'id'>>) => void;
   onDeletePayment: (debtId: string, paymentId: string) => void;
   isLoading: boolean;
   showSettled: boolean;
 }
 
-const ClientFormattedDate = ({ date }: { date: string | Date | Timestamp }) => {
+const ClientFormattedDate = ({ date, prefix }: { date: string | Date | Timestamp, prefix?: string }) => {
     const [formattedDate, setFormattedDate] = useState('');
   
     useEffect(() => {
@@ -70,7 +71,7 @@ const ClientFormattedDate = ({ date }: { date: string | Date | Timestamp }) => {
       return <span className="h-4 w-20 animate-pulse bg-muted rounded-md" />;
     }
   
-    return <>{formattedDate}</>;
+    return <>{prefix}{formattedDate}</>;
   };
 
 export function DebtsGrid({ 
@@ -103,13 +104,7 @@ export function DebtsGrid({
     );
   }
 
-  const filteredDebts = debts.filter(debt => {
-    const remaining = calculateRemaining(debt);
-    const isPaid = remaining <= 0.01;
-    return showSettled ? isPaid : !isPaid;
-  });
-
-  if (filteredDebts.length === 0) {
+  if (debts.length === 0) {
     return (
         <div className="text-center py-10 col-span-full">
             <CheckCircle className="mx-auto h-12 w-12 text-green-500" />
@@ -119,8 +114,8 @@ export function DebtsGrid({
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 md:gap-4 mt-4">
-      {filteredDebts.map((debt) => {
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mt-4">
+      {debts.map((debt) => {
         const remaining = calculateRemaining(debt);
         const paid = calculatePaid(debt);
         const isPaid = remaining <= 0.01; // Use a small threshold for float comparison
@@ -140,17 +135,17 @@ export function DebtsGrid({
                           {isPaid ? "Pagado" : "Pendiente"}
                       </div>
                     </CardTitle>
-                    <CardDescription className="text-xs md:text-sm pl-6">
+                    <CardDescription className="text-sm pl-6">
                       <span className="font-semibold text-foreground">{debt.concept}</span>
                     </CardDescription>
-                     <CardDescription className="text-xs md:text-sm pl-6">
+                     <CardDescription className="text-sm pl-6">
                       <span className="font-semibold text-foreground">{formatCurrency(debt.amount, debt.currency)}</span>
                     </CardDescription>
                 </div>
                 <div className="ml-auto -mt-1 -mr-1">
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button aria-haspopup="true" size="icon" variant="ghost" className="h-6 w-6 md:h-8 md:w-8">
+                            <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8">
                             <MoreHorizontal className="h-4 w-4" />
                             <span className="sr-only">Toggle menu</span>
                             </Button>
@@ -196,7 +191,7 @@ export function DebtsGrid({
                 </div>
               </div>
             </CardContent>
-            <CardFooter className="p-4 pt-2 flex items-center justify-between gap-4">
+            <CardFooter className="p-4 pt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
                 {!isPaid && (
                   <AddPaymentDialog debt={debt} onAddPayment={onAddPayment}>
                     <Button variant="outline" size="sm" className="w-full gap-2">
@@ -204,9 +199,15 @@ export function DebtsGrid({
                     </Button>
                   </AddPaymentDialog>
                 )}
-                 <div className="text-xs text-muted-foreground text-right flex-shrink-0 whitespace-nowrap">
+                 <div className="text-xs text-muted-foreground text-left flex-shrink-0 whitespace-nowrap">
                     Creada el <ClientFormattedDate date={debt.createdAt} />
                 </div>
+                {debt.dueDate && !isPaid && (
+                    <div className="text-xs text-muted-foreground text-right flex-shrink-0 whitespace-nowrap flex items-center gap-1">
+                        <Bell className="h-3 w-3" />
+                        <ClientFormattedDate date={debt.dueDate} prefix="Vence el "/>
+                    </div>
+                )}
             </CardFooter>
           </Card>
         );

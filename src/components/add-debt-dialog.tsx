@@ -1,8 +1,9 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useFieldArray } from "react-hook-form";
 import * as z from "zod";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,10 +32,17 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { FileImage, PlusCircle } from "lucide-react";
+import { FileImage, PlusCircle, Calendar as CalendarIcon, Trash2 } from "lucide-react";
 import type { Debt, Debtor } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { fileToDataUrl } from '@/lib/utils';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { Calendar } from './ui/calendar';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
+import { cn } from '@/lib/utils';
+import { Timestamp } from 'firebase/firestore';
+import { ScrollArea } from './ui/scroll-area';
 
 const debtFormSchema = z.object({
   debtorId: z.string({ required_error: "Debes seleccionar un deudor." }),
@@ -42,7 +50,12 @@ const debtFormSchema = z.object({
   amount: z.coerce.number().positive({ message: "El monto debe ser positivo." }),
   currency: z.string({ required_error: "Se requiere una divisa." }),
   type: z.enum(["iou", "uome"], { required_error: "Debes seleccionar un tipo de deuda." }),
-  receipt: z.any().optional(),
+  createdAt: z.date({ required_error: "La fecha de creación es requerida."}),
+  dueDate: z.date().optional(),
+  items: z.array(z.object({
+    name: z.string().min(1, { message: "El nombre es requerido." }),
+    value: z.coerce.number().positive({ message: "El valor debe ser positivo." }),
+  })).optional(),
 });
 
 type DebtFormValues = z.infer<typeof debtFormSchema>;
@@ -50,7 +63,7 @@ type DebtFormValues = z.infer<typeof debtFormSchema>;
 interface AddDebtDialogProps {
   debtors: Debtor[];
   debtToEdit?: Debt;
-  onAddDebt?: (newDebt: Omit<Debt, 'id' | 'payments' | 'createdAt' | 'userId' | 'debtorName'>) => void;
+  onAddDebt?: (newDebt: Omit<Debt, 'id' | 'payments' | 'userId' | 'debtorName'> & { receiptUrl?: string }) => void;
   onEditDebt?: (debtId: string, updatedDebt: Partial<Omit<Debt, 'id'>>, debtorName: string) => void;
   children: React.ReactNode;
 }
@@ -59,27 +72,62 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
   const isEditMode = !!debtToEdit;
+  const [selectedFile, setSelectedFile] = useState<FileList | null>(null);
 
   const form = useForm<DebtFormValues>({
     resolver: zodResolver(debtFormSchema),
+    defaultValues: {
+      amount: 0,
+      concept: "",
+      currency: "COP",
+      type: "iou",
+      createdAt: new Date(),
+      items: [],
+      dueDate: undefined,
+    }
   });
 
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "items",
+  });
+
+  const watchedItems = form.watch("items");
+  const hasItems = watchedItems && watchedItems.length > 0;
+
   useEffect(() => {
-    if (isEditMode && debtToEdit) {
-      form.reset({
-        debtorId: debtToEdit.debtorId,
-        concept: debtToEdit.concept,
-        amount: debtToEdit.amount,
-        currency: debtToEdit.currency,
-        type: debtToEdit.type,
-      });
-    } else {
-      form.reset({
-        amount: 0,
-        currency: "COP",
-        type: "iou",
-        concept: "",
-      });
+    if (hasItems) {
+      const total = watchedItems.reduce((sum, item) => sum + (item.value || 0), 0);
+      form.setValue('amount', total, { shouldValidate: true });
+    }
+  }, [watchedItems, form, hasItems]);
+
+  useEffect(() => {
+    if (open) {
+      setSelectedFile(null);
+      if (isEditMode && debtToEdit) {
+        form.reset({
+          debtorId: debtToEdit.debtorId,
+          concept: debtToEdit.concept,
+          amount: debtToEdit.amount,
+          currency: debtToEdit.currency,
+          type: debtToEdit.type,
+          createdAt: debtToEdit.createdAt.toDate(),
+          dueDate: debtToEdit.dueDate ? debtToEdit.dueDate.toDate() : undefined,
+          items: debtToEdit.items || [],
+        });
+      } else {
+        form.reset({
+          amount: 0,
+          currency: "COP",
+          type: "iou",
+          concept: "",
+          debtorId: undefined,
+          createdAt: new Date(),
+          dueDate: undefined,
+          items: [],
+        });
+      }
     }
   }, [isEditMode, debtToEdit, open, form]);
 
@@ -96,9 +144,10 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
     }
 
     let receiptDataUrl: string | undefined = undefined;
-    if (data.receipt?.[0]) {
+    
+    if (selectedFile && selectedFile.length > 0) {
       try {
-        receiptDataUrl = await fileToDataUrl(data.receipt[0]);
+        receiptDataUrl = await fileToDataUrl(selectedFile[0]);
       } catch (error) {
         toast({
             variant: "destructive",
@@ -108,31 +157,34 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
         return;
       }
     }
+    
+    const finalAmount = hasItems ? (data.items || []).reduce((sum, item) => sum + (item.value || 0), 0) : data.amount;
+
+    const debtData = {
+        ...data,
+        amount: finalAmount,
+        items: hasItems ? data.items : [],
+    };
 
     if (isEditMode && debtToEdit && onEditDebt) {
         const updatedDebt: Partial<Omit<Debt, 'id'>> = {
-            debtorId: data.debtorId,
-            concept: data.concept,
-            amount: data.amount,
-            currency: data.currency,
-            type: data.type,
+            ...debtData,
+            createdAt: Timestamp.fromDate(data.createdAt),
+            dueDate: data.dueDate ? Timestamp.fromDate(data.dueDate) : undefined,
             debtorName: selectedDebtor.name,
+            ...(receiptDataUrl && { receiptUrl: receiptDataUrl }),
         };
-        if (receiptDataUrl) {
-          updatedDebt.receiptUrl = receiptDataUrl;
-        }
+        
         onEditDebt(debtToEdit.id, updatedDebt, selectedDebtor.name);
         toast({
             title: "Deuda Actualizada",
             description: `La deuda de ${selectedDebtor.name} ha sido actualizada.`,
         });
     } else if (onAddDebt) {
-        const newDebt: Omit<Debt, 'id' | 'payments' | 'createdAt' | 'userId' | 'debtorName'> = {
-          debtorId: data.debtorId,
-          concept: data.concept,
-          amount: data.amount,
-          currency: data.currency,
-          type: data.type,
+        const newDebt: Omit<Debt, 'id' | 'payments' | 'userId' | 'debtorName'> & { receiptUrl?: string } = {
+          ...debtData,
+          createdAt: Timestamp.fromDate(data.createdAt),
+          dueDate: data.dueDate ? Timestamp.fromDate(data.dueDate) : undefined,
           ...(receiptDataUrl && { receiptUrl: receiptDataUrl }),
         };
         onAddDebt(newDebt);
@@ -149,7 +201,7 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{isEditMode ? "Editar Deuda" : "Agregar Nueva Deuda"}</DialogTitle>
           <DialogDescription>
@@ -160,7 +212,9 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+          <form onSubmit={form.handleSubmit(onSubmit)}>
+            <ScrollArea className="h-[60vh] pr-6">
+            <div className="space-y-4 py-4">
              <FormField
               control={form.control}
               name="type"
@@ -226,6 +280,54 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
                 </FormItem>
               )}
             />
+            
+            <div>
+              <FormLabel>Ítems de la Deuda (Opcional)</FormLabel>
+              <div className="space-y-2 mt-2">
+                {fields.map((field, index) => (
+                  <div key={field.id} className="flex items-center gap-2">
+                    <FormField
+                      control={form.control}
+                      name={`items.${index}.name`}
+                      render={({ field }) => (
+                        <FormItem className="flex-grow">
+                          <FormControl>
+                            <Input {...field} placeholder="Nombre del ítem" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name={`items.${index}.value`}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormControl>
+                            <Input {...field} type="number" placeholder="Valor" className="w-28" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => append({ name: '', value: 0 })}
+              >
+                Agregar Ítem
+              </Button>
+            </div>
+
+
             <div className="grid grid-cols-3 gap-2">
                 <FormField
                 control={form.control}
@@ -234,7 +336,7 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
                     <FormItem className="col-span-2">
                     <FormLabel>Monto</FormLabel>
                     <FormControl>
-                        <Input type="number" placeholder="100.00" {...field} />
+                        <Input type="number" placeholder="100.00" {...field} disabled={hasItems} />
                     </FormControl>
                     <FormMessage />
                     </FormItem>
@@ -264,29 +366,112 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
                 />
             </div>
             
-            <FormField
-              control={form.control}
-              name="receipt"
-              render={({ field: { onChange, ...fieldProps } }) => (
-                <FormItem>
-                  <FormLabel>Factura / Recibo (Opcional)</FormLabel>
-                  <FormControl>
-                     <div className="relative">
-                      <FileImage className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                      <Input 
-                        type="file" 
-                        className="pl-10" 
-                        accept="image/*"
-                        onChange={(e) => onChange(e.target.files)} 
-                        {...fieldProps}
-                      />
-                    </div>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <DialogFooter>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="createdAt"
+                render={({ field }) => (
+                  <FormItem className="flex flex-col">
+                    <FormLabel>Fecha de Creación</FormLabel>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button
+                            variant={"outline"}
+                            className={cn(
+                              "pl-3 text-left font-normal",
+                              !field.value && "text-muted-foreground"
+                            )}
+                          >
+                            {field.value ? (
+                              format(field.value, "PPP", { locale: es })
+                            ) : (
+                              <span>Elige una fecha</span>
+                            )}
+                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={field.value}
+                          onSelect={field.onChange}
+                          disabled={(date) =>
+                            date > new Date() || date < new Date("1900-01-01")
+                          }
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+               <FormField
+                control={form.control}
+                name="dueDate"
+                render={({ field }) => (
+                  <FormItem className="flex flex-col">
+                    <FormLabel>Fecha de Vencimiento (Opcional)</FormLabel>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button
+                            variant={"outline"}
+                            className={cn(
+                              "pl-3 text-left font-normal",
+                              !field.value && "text-muted-foreground"
+                            )}
+                          >
+                            {field.value ? (
+                              format(field.value, "PPP", { locale: es })
+                            ) : (
+                              <span>Elige una fecha</span>
+                            )}
+                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={field.value}
+                          onSelect={field.onChange}
+                          disabled={(date) =>
+                            date < new Date()
+                          }
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+
+            <FormItem>
+              <FormLabel>Factura / Recibo (Opcional)</FormLabel>
+              <FormControl>
+                <div className="relative">
+                  <FileImage className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <Input 
+                    type="file" 
+                    className="pl-10" 
+                    accept="image/*"
+                    onChange={(e) => setSelectedFile(e.target.files)}
+                  />
+                </div>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+
+
+            </div>
+            </ScrollArea>
+            <DialogFooter className="pt-4 pr-6">
               <Button type="submit" className="bg-accent hover:bg-accent/90 text-accent-foreground">
                 {isEditMode ? "Guardar Cambios" : "Crear Deuda"}
               </Button>

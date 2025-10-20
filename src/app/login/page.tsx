@@ -7,7 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { FirebaseError } from "firebase/app";
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
 import { HandCoins } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -17,7 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 
 const loginSchema = z.object({
   username: z.string().min(1, { message: "El usuario es requerido." }),
-  password: z.string().min(1, { message: "La contraseña es requerida." }),
+  password: z.string().min(6, { message: "La contraseña debe tener al menos 6 caracteres." }),
 });
 
 type LoginFormValues = z.infer<typeof loginSchema>;
@@ -45,21 +46,37 @@ export default function LoginPage() {
     const handleLogin = async (data: LoginFormValues) => {
         if (!auth) return;
         const email = `${data.username}@playground.com`;
+        
         try {
             await signInWithEmailAndPassword(auth, email, data.password);
             router.push('/');
         } catch (error) {
-            console.error("Error signing in", error);
-            toast({
-                variant: "destructive",
-                title: "Error de inicio de sesión",
-                description: "Usuario o contraseña incorrectos. Por favor, inténtalo de nuevo.",
-            });
+            if (error instanceof FirebaseError && (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found')) {
+                // User does not exist, try to create a new one
+                try {
+                    await createUserWithEmailAndPassword(auth, email, data.password);
+                    router.push('/');
+                } catch (signUpError) {
+                    console.error("Error signing up", signUpError);
+                    toast({
+                        variant: "destructive",
+                        title: "Error de registro",
+                        description: "No se pudo crear la cuenta. Por favor, inténtalo de nuevo.",
+                    });
+                }
+            } else {
+                console.error("Error signing in", error);
+                toast({
+                    variant: "destructive",
+                    title: "Error de inicio de sesión",
+                    description: "Usuario o contraseña incorrectos. Por favor, inténtalo de nuevo.",
+                });
+            }
         }
     };
 
     if (isUserLoading || user) {
-        return null; // O un spinner de carga
+        return null; // Or a loading spinner
     }
 
     return (
@@ -71,7 +88,7 @@ export default function LoginPage() {
                     </div>
                     <CardTitle className="text-2xl">Bienvenido a Deudas</CardTitle>
                     <CardDescription>
-                        Inicia sesión para gestionar tus deudas y pagos.
+                        Inicia sesión o regístrate para gestionar tus deudas.
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -109,7 +126,7 @@ export default function LoginPage() {
                                 )}
                             />
                             <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
-                                {form.formState.isSubmitting ? "Iniciando sesión..." : "Iniciar Sesión"}
+                                {form.formState.isSubmitting ? "Accediendo..." : "Iniciar Sesión / Registrarse"}
                             </Button>
                         </form>
                     </Form>

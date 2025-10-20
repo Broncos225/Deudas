@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
@@ -8,7 +7,7 @@ import type { Debt, Payment, Debtor, Settlement } from '@/lib/types';
 import DashboardHeader from '@/components/dashboard-header';
 import { DebtsGrid } from '@/components/debts-grid';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowDownLeft, ArrowUpRight, Loader, PlusCircle } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, LayoutGrid, List, Loader, PlusCircle } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking, useUser } from '@/firebase';
 import { collection, doc, Timestamp, writeBatch } from 'firebase/firestore';
@@ -20,14 +19,19 @@ import { Button } from './ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
+import { DebtsChart } from './debts-chart';
+import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
+import { DebtsList } from './debts-list';
 
 
 export default function DebtDashboard() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
   const firestore = useFirestore();
-  const [activeTab, setActiveTab] = useState("overview");
   const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState("overview");
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
 
   useEffect(() => {
     if (!isUserLoading && !user) {
@@ -54,7 +58,7 @@ export default function DebtDashboard() {
   const { data: debts, isLoading: isLoadingDebtsData } = useCollection<Debt>(debtsRef);
   const { data: settlements, isLoading: isLoadingSettlements } = useCollection<Settlement>(settlementsRef);
 
-  const handleAddDebt = (newDebt: Omit<Debt, 'id' | 'payments' | 'createdAt' | 'userId'>) => {
+  const handleAddDebt = (newDebt: Omit<Debt, 'id' | 'payments' | 'userId' | 'debtorName'> & { receiptUrl?: string }) => {
     if (!debtsRef || !user || !debtors) return;
     const debtor = debtors.find(d => d.id === newDebt.debtorId);
     if (!debtor) return;
@@ -62,7 +66,6 @@ export default function DebtDashboard() {
     const debtToAdd: Omit<Debt, 'id'> = {
       ...newDebt,
       debtorName: debtor.name,
-      createdAt: Timestamp.now(),
       payments: [],
       userId: user.uid,
       isSettled: false,
@@ -82,7 +85,7 @@ export default function DebtDashboard() {
     deleteDocumentNonBlocking(debtDocRef);
   };
 
-  const handleAddPayment = (debtId: string, newPayment: Omit<Payment, 'id' | 'date'>) => {
+  const handleAddPayment = (debtId: string, newPayment: Omit<Payment, 'id'>) => {
     if (!debtsRef || !debts) return;
     const debt = debts.find(d => d.id === debtId);
     if (!debt) return;
@@ -90,22 +93,20 @@ export default function DebtDashboard() {
     const paymentToAdd: Payment = {
       ...newPayment,
       id: new Date().getTime().toString(),
-      date: Timestamp.fromDate(new Date()),
     };
 
     const updatedPayments = [...debt.payments, paymentToAdd];
     updateDocumentNonBlocking(doc(debtsRef, debtId), { payments: updatedPayments });
   };
 
-  const handleEditPayment = (debtId: string, paymentId: string, updatedPaymentData: Partial<Omit<Payment, 'id' | 'date'>>) => {
+  const handleEditPayment = (debtId: string, paymentId: string, updatedPaymentData: Partial<Omit<Payment, 'id'>>) => {
     if (!debtsRef || !debts) return;
     const debt = debts.find(d => d.id === debtId);
     if (!debt) return;
 
     const updatedPayments = debt.payments.map(p => {
         if (p.id === paymentId) {
-            // Keep original date if not updated
-            return { ...p, ...updatedPaymentData, date: p.date, id: p.id };
+            return { ...p, ...updatedPaymentData, id: p.id };
         }
         return p;
     });
@@ -293,69 +294,6 @@ export default function DebtDashboard() {
     deleteDocumentNonBlocking(debtorDocRef);
   };
 
-  const renderContent = () => {
-    const isLoading = isLoadingDebtors || isLoadingDebtsData || isLoadingSettlements;
-
-    switch (activeTab) {
-      case "overview":
-        return (
-          <DebtsByPerson
-            debts={debts || []}
-            debtors={debtors || []}
-            settlements={settlements || []}
-            onAddPayment={handleAddPayment}
-            onEditDebt={handleEditDebt}
-            onDeleteDebt={handleDeleteDebt}
-            onEditPayment={handleEditPayment}
-            onDeletePayment={handleDeletePayment}
-            onSettleDebts={handleSettleDebts}
-            onReverseSettlement={handleReverseSettlement}
-            isLoading={isLoading}
-          />
-        );
-      case "all-debts":
-        return (
-            <DebtsGrid 
-              debts={debts?.filter(d => (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) > 0.01) || []} 
-              debtors={debtors || []}
-              onAddPayment={handleAddPayment} 
-              onEditDebt={handleEditDebt}
-              onDeleteDebt={handleDeleteDebt}
-              onEditPayment={handleEditPayment}
-              onDeletePayment={handleDeletePayment}
-              isLoading={isLoadingDebtsData || isLoadingDebtors}
-              showSettled={false}
-            />
-        );
-      case "history":
-        return (
-            <DebtsGrid 
-              debts={debts || []} 
-              debtors={debtors || []}
-              onAddPayment={handleAddPayment} 
-              onEditDebt={handleEditDebt}
-              onDeleteDebt={handleDeleteDebt}
-              onEditPayment={handleEditPayment}
-              onDeletePayment={handleDeletePayment}
-              isLoading={isLoadingDebtsData || isLoadingDebtors}
-              showSettled={true}
-            />
-        );
-      case "debtors":
-        return (
-          <DebtorDetails
-            debtors={debtors || []}
-            onAddDebtor={handleAddDebtor}
-            onEditDebtor={handleEditDebtor}
-            onDeleteDebtor={handleDeleteDebtor}
-            isLoading={isLoadingDebtors}
-          />
-        );
-      default:
-        return null;
-    }
-  };
-
 
   if (isUserLoading || !user) {
     return (
@@ -375,21 +313,57 @@ export default function DebtDashboard() {
     </AddDebtDialog>
   );
 
+  const isLoading = isLoadingDebtors || isLoadingDebtsData || isLoadingSettlements;
+  
+  const renderContentForDebts = (isSettled: boolean) => {
+    const filteredDebts = debts?.filter(d => {
+        const remaining = d.amount - d.payments.reduce((s, p) => s + p.amount, 0);
+        const isPaid = remaining <= 0.01;
+        return isSettled ? isPaid : !isPaid;
+    }) || [];
+
+    if (viewMode === 'list') {
+        return <DebtsList
+            debts={filteredDebts}
+            debtors={debtors || []}
+            onAddPayment={handleAddPayment}
+            onEditDebt={handleEditDebt}
+            onDeleteDebt={handleDeleteDebt}
+            onEditPayment={handleEditPayment}
+            onDeletePayment={handleDeletePayment}
+            isLoading={isLoadingDebtsData || isLoadingDebtors}
+        />;
+    }
+    
+    return <DebtsGrid 
+        debts={filteredDebts}
+        debtors={debtors || []}
+        onAddPayment={handleAddPayment} 
+        onEditDebt={handleEditDebt}
+        onDeleteDebt={handleDeleteDebt}
+        onEditPayment={handleEditPayment}
+        onDeletePayment={handleDeletePayment}
+        isLoading={isLoadingDebtsData || isLoadingDebtors}
+        showSettled={isSettled}
+      />;
+  };
+
+
   return (
     <div className="flex min-h-screen w-full flex-col bg-muted/40">
       <DashboardHeader addDebtDialog={addDebtDialog} />
-      <main className="flex flex-1 flex-col gap-4 p-2 md:gap-8 md:p-8">
-        <div className="grid gap-2 md:gap-4 md:grid-cols-2">
+      <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
+        <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-xs md:text-sm font-medium">Total que Debes (aprox. COP)</CardTitle>
+              <CardTitle className="text-sm font-medium">Total que Debes (aprox. COP)</CardTitle>
               <ArrowDownLeft className="h-4 w-4 text-red-500" />
             </CardHeader>
             <CardContent>
               {isLoadingDebtsData ? (
                 <Skeleton className="h-8 w-3/4" />
               ) : (
-                <div className="text-lg md:text-2xl font-bold font-headline text-red-500">
+                <div className="text-2xl font-bold font-headline text-red-500">
                   {formatCurrency(totalIOwe, 'COP')}
                 </div>
               )}
@@ -397,40 +371,77 @@ export default function DebtDashboard() {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-xs md:text-sm font-medium">Total que Te Deben (aprox. COP)</CardTitle>
+              <CardTitle className="text-sm font-medium">Total que Te Deben (aprox. COP)</CardTitle>
                <ArrowUpRight className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
                {isLoadingDebtsData ? (
                 <Skeleton className="h-8 w-3/4" />
               ) : (
-                <div className="text-lg md:text-2xl font-bold font-headline text-green-500">
+                <div className="text-2xl font-bold font-headline text-green-500">
                     {formatCurrency(totalOwedToMe, 'COP')}
                 </div>
               )}
             </CardContent>
           </Card>
         </div>
-        <Tabs defaultValue="overview" className="w-full" onValueChange={setActiveTab}>
-            <div className="flex items-center justify-between">
+        <Tabs defaultValue="overview" className="w-full" value={activeTab} onValueChange={setActiveTab}>
+            <div className="flex items-center justify-between flex-wrap gap-2">
                 <TabsList>
                     <TabsTrigger value="overview">Resumen</TabsTrigger>
                     <TabsTrigger value="all-debts">Deudas Activas</TabsTrigger>
                     <TabsTrigger value="history">Historial</TabsTrigger>
                     <TabsTrigger value="debtors">Contactos</TabsTrigger>
                 </TabsList>
+                {(activeTab === 'all-debts' || activeTab === 'history') && (
+                    <ToggleGroup 
+                        type="single" 
+                        value={viewMode} 
+                        onValueChange={(value) => value && setViewMode(value as 'grid' | 'list')}
+                        className="gap-1"
+                    >
+                        <ToggleGroupItem value="grid" aria-label="Grid view">
+                            <LayoutGrid className="h-4 w-4" />
+                        </ToggleGroupItem>
+                        <ToggleGroupItem value="list" aria-label="List view">
+                            <List className="h-4 w-4" />
+                        </ToggleGroupItem>
+                    </ToggleGroup>
+                )}
             </div>
             <TabsContent value="overview" forceMount={activeTab === 'overview'}>
-              {renderContent()}
+              <div className="space-y-4">
+                <DebtsByPerson
+                  user={user}
+                  debts={debts || []}
+                  debtors={debtors || []}
+                  settlements={settlements || []}
+                  onAddPayment={handleAddPayment}
+                  onEditDebt={handleEditDebt}
+                  onDeleteDebt={handleDeleteDebt}
+                  onEditPayment={handleEditPayment}
+                  onDeletePayment={handleDeletePayment}
+                  onSettleDebts={handleSettleDebts}
+                  onReverseSettlement={handleReverseSettlement}
+                  isLoading={isLoading}
+                />
+                <DebtsChart debts={debts || []} />
+              </div>
             </TabsContent>
             <TabsContent value="all-debts" forceMount={activeTab === 'all-debts'}>
-              {renderContent()}
+              {renderContentForDebts(false)}
             </TabsContent>
              <TabsContent value="history" forceMount={activeTab === 'history'}>
-              {renderContent()}
+              {renderContentForDebts(true)}
             </TabsContent>
             <TabsContent value="debtors" forceMount={activeTab === 'debtors'}>
-              {renderContent()}
+              <DebtorDetails
+                debtors={debtors || []}
+                onAddDebtor={handleAddDebtor}
+                onEditDebtor={handleEditDebtor}
+                onDeleteDebtor={handleDeleteDebtor}
+                isLoading={isLoadingDebtors}
+              />
             </TabsContent>
         </Tabs>
       </main>

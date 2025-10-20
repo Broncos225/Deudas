@@ -3,7 +3,7 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
-  ({ className, type, ...props }, ref) => {
+  ({ className, type, value, ...props }, ref) => {
     return (
       <input
         type={type}
@@ -12,6 +12,10 @@ const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
           className
         )}
         ref={ref}
+        // Los inputs de tipo 'file' no pueden ser componentes controlados en React.
+        // Su valor solo puede ser establecido por el usuario, no programáticamente.
+        // Ignoramos el 'value' si el tipo es 'file'.
+        value={type === 'file' ? undefined : (value ?? "")}
         {...props}
       />
     )

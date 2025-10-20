@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -33,6 +34,16 @@ const debtorFormSchema = z.object({
   name: z.string().min(2, { message: "El nombre debe tener al menos 2 caracteres." }),
   contact: z.string().optional(),
   type: z.enum(["person", "entity"], { required_error: "Debes seleccionar un tipo." }),
+  paymentMethod: z.enum(["efectivo", "virtual"], { required_error: "Debes seleccionar un método de pago."}),
+  paymentInfo: z.string().optional(),
+}).refine(data => {
+    if (data.paymentMethod === 'virtual') {
+        return !!data.paymentInfo && data.paymentInfo.length > 0;
+    }
+    return true;
+}, {
+    message: "La información de pago es requerida para el método virtual.",
+    path: ["paymentInfo"],
 });
 
 type DebtorFormValues = z.infer<typeof debtorFormSchema>;
@@ -52,22 +63,29 @@ export function AddDebtorDialog({ onAddDebtor, onEditDebtor, debtorToEdit, child
   const form = useForm<DebtorFormValues>({
     resolver: zodResolver(debtorFormSchema),
     defaultValues: {
-      type: 'person'
+      type: 'person',
+      paymentMethod: 'efectivo',
     }
   });
+
+  const paymentMethod = form.watch("paymentMethod");
 
   useEffect(() => {
     if (isEditMode && debtorToEdit) {
         form.reset({
             name: debtorToEdit.name,
             contact: debtorToEdit.contact || "",
-            type: debtorToEdit.type || 'person'
+            type: debtorToEdit.type || 'person',
+            paymentMethod: debtorToEdit.paymentMethod || 'efectivo',
+            paymentInfo: debtorToEdit.paymentInfo || ""
         });
     } else {
         form.reset({
             name: "",
             contact: "",
-            type: 'person'
+            type: 'person',
+            paymentMethod: 'efectivo',
+            paymentInfo: ""
         });
     }
   }, [isEditMode, debtorToEdit, open, form]);
@@ -172,6 +190,51 @@ export function AddDebtorDialog({ onAddDebtor, onEditDebtor, debtorToEdit, child
                 </FormItem>
               )}
             />
+            <FormField
+              control={form.control}
+              name="paymentMethod"
+              render={({ field }) => (
+                <FormItem className="space-y-3">
+                  <FormLabel>Método de Pago Preferido</FormLabel>
+                  <FormControl>
+                    <RadioGroup
+                      onValueChange={field.onChange}
+                      defaultValue={field.value}
+                      className="flex space-x-4"
+                    >
+                      <FormItem className="flex items-center space-x-2 space-y-0">
+                        <FormControl>
+                          <RadioGroupItem value="efectivo" />
+                        </FormControl>
+                        <FormLabel className="font-normal">Efectivo</FormLabel>
+                      </FormItem>
+                      <FormItem className="flex items-center space-x-2 space-y-0">
+                        <FormControl>
+                          <RadioGroupItem value="virtual" />
+                        </FormControl>
+                        <FormLabel className="font-normal">Virtual</FormLabel>
+                      </FormItem>
+                    </RadioGroup>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            {paymentMethod === 'virtual' && (
+                <FormField
+                control={form.control}
+                name="paymentInfo"
+                render={({ field }) => (
+                    <FormItem>
+                    <FormLabel>Información de Pago Virtual</FormLabel>
+                    <FormControl>
+                        <Input placeholder="N° de cuenta, Nequi, etc." {...field} />
+                    </FormControl>
+                    <FormMessage />
+                    </FormItem>
+                )}
+                />
+            )}
             <DialogFooter>
               <Button type="submit" className="bg-accent hover:bg-accent/90 text-accent-foreground">
                 {isEditMode ? "Guardar Cambios" : "Crear Contacto"}

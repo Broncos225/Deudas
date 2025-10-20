@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -18,9 +19,11 @@ import { ScrollArea } from './ui/scroll-area';
 import { Timestamp } from 'firebase/firestore';
 import { Button } from './ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
-import { MoreHorizontal, Edit, Trash2, ShieldCheck, Scale } from 'lucide-react';
+import { MoreHorizontal, Edit, Trash2, ShieldCheck, Scale, Bell } from 'lucide-react';
 import { DeletePaymentAlertDialog } from './delete-payment-alert-dialog';
 import { EditPaymentDialog } from './edit-payment-dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+
 
 interface ViewDebtDialogProps {
   debt: Debt;
@@ -105,6 +108,7 @@ export function ViewDebtDialog({ debt, children, onEditPayment, onDeletePayment 
 
   const paid = calculatePaid(debt);
   const remaining = debt.amount - paid;
+  const hasItems = debt.items && debt.items.length > 0;
 
   return (
     <>
@@ -115,8 +119,14 @@ export function ViewDebtDialog({ debt, children, onEditPayment, onDeletePayment 
         <DialogContent className="sm:max-w-2xl grid-rows-[auto,1fr] max-h-[90vh]">
           <DialogHeader>
             <DialogTitle>Detalles de la Deuda: {debt.debtorName}</DialogTitle>
-            <DialogDescription>
-              Creada el <ClientFormattedDate date={debt.createdAt} formatString="PPP" />
+            <DialogDescription className="flex items-center gap-4">
+              <span>{debt.concept} - Creada el <ClientFormattedDate date={debt.createdAt} formatString="PPP" /></span>
+              {debt.dueDate && (
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Bell className="h-3 w-3" />
+                  Vence el <ClientFormattedDate date={debt.dueDate} formatString="PPP" />
+                </span>
+              )}
             </DialogDescription>
           </DialogHeader>
           <ScrollArea className="h-full">
@@ -129,6 +139,29 @@ export function ViewDebtDialog({ debt, children, onEditPayment, onDeletePayment 
                   </div>
                   
                   <Separator />
+
+                  {hasItems && (
+                      <div>
+                          <h4 className="font-medium mb-2">Ítems de la Deuda</h4>
+                          <Table>
+                              <TableHeader>
+                                  <TableRow>
+                                      <TableHead>Ítem</TableHead>
+                                      <TableHead className="text-right">Valor</TableHead>
+                                  </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                  {debt.items?.map((item, index) => (
+                                      <TableRow key={index}>
+                                          <TableCell className="font-medium">{item.name}</TableCell>
+                                          <TableCell className="text-right">{formatCurrency(item.value, debt.currency)}</TableCell>
+                                      </TableRow>
+                                  ))}
+                              </TableBody>
+                          </Table>
+                          <Separator className="my-4" />
+                      </div>
+                  )}
                   
                   <div>
                     <h4 className="font-medium mb-2">Historial de Pagos</h4>
@@ -148,7 +181,7 @@ export function ViewDebtDialog({ debt, children, onEditPayment, onDeletePayment 
                               </div>
                               <div className="flex items-center gap-1">
                                 {payment.receiptUrl && (
-                                  <Button variant="outline" size="sm" onClick={() => payment.receiptUrl && setActiveReceipt({ url: payment.receiptUrl, title: `Recibo del Pago - ${format(payment.date instanceof Timestamp ? payment.date.toDate() : new Date(payment.date as string), "MMM d", { locale: es })}` })}>Ver Recibo</Button>
+                                  <Button variant="outline" size="sm" onClick={() => payment.receiptUrl && setActiveReceipt({ url: payment.receiptUrl, title: `Recibo del Pago - ${format(payment.date instanceof Timestamp ? payment.date.toDate() : new Date(), "MMM d", { locale: es })}` })}>Ver Recibo</Button>
                                 )}
                                 {!payment.isSettlement && (
                                     <DropdownMenu>

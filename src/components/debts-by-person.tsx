@@ -7,7 +7,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { DebtsGrid } from './debts-grid';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Scale, Trash2, Loader } from 'lucide-react';
+import { Scale, Trash2, Loader, Clipboard } from 'lucide-react';
 import { SettleDebtsDialog } from './settle-debts-dialog';
 import { format, isValid } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -23,16 +23,25 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
+import { User } from 'firebase/auth';
 
 
 interface DebtsByPersonProps {
+  user: User | null;
   debts: Debt[];
   debtors: Debtor[];
   settlements: Settlement[];
-  onAddPayment: (debtId: string, newPayment: Omit<Payment, 'id' | 'date'>) => void;
+  onAddPayment: (debtId: string, newPayment: Omit<Payment, 'id'>) => void;
   onEditDebt: (debtId: string, updatedDebt: Partial<Omit<Debt, 'id'>>, debtorName: string) => void;
   onDeleteDebt: (debtId: string) => void;
-  onEditPayment: (debtId: string, paymentId: string, updatedPayment: Partial<Omit<Payment, 'id' | 'date'>>) => void;
+  onEditPayment: (debtId: string, paymentId: string, updatedPayment: Partial<Omit<Payment, 'id'>>) => void;
   onDeletePayment: (debtId: string, paymentId: string) => void;
   onSettleDebts: (debtorId: string, iouTotal: number, uomeTotal: number, currency: string) => void;
   onReverseSettlement: (settlement: Settlement) => void;
@@ -40,6 +49,7 @@ interface DebtsByPersonProps {
 }
 
 export function DebtsByPerson({ 
+    user,
     debts, 
     debtors, 
     settlements, 
@@ -53,7 +63,18 @@ export function DebtsByPerson({
     isLoading
 }: DebtsByPersonProps) {
 
+  const { toast } = useToast();
   const formatCurrency = (amount: number, currency: string) => new Intl.NumberFormat("es-CO", { style: "currency", currency: currency, minimumFractionDigits: 0 }).format(amount);
+  const formatDate = (date: any) => {
+    const d = date instanceof Timestamp ? date.toDate() : new Date(date);
+    return isValid(d) ? format(d, "MMM d, yyyy", { locale: es }) : 'Fecha inválida';
+  }
+
+  const getUsername = (email: string | null | undefined) => {
+    if (!email) return 'Usuario';
+    const username = email.split('@')[0];
+    return username.charAt(0).toUpperCase() + username.slice(1);
+  }
 
   const debtsGroupedByPerson = useMemo(() => {
     if (!debtors || !debts) return [];
@@ -62,6 +83,7 @@ export function DebtsByPerson({
 
     return debtors.map(debtor => {
       const personDebts = activeDebts.filter(d => d.debtorId === debtor.id);
+      const allPersonDebts = debts.filter(d => d.debtorId === debtor.id);
       const personSettlements = settlements.filter(s => s.debtorId === debtor.id);
       
       const totals = personDebts.reduce((acc, debt) => {
@@ -80,6 +102,7 @@ export function DebtsByPerson({
       return {
         ...debtor,
         debts: personDebts,
+        allDebts: allPersonDebts,
         settlements: personSettlements,
         totals,
       };
@@ -99,6 +122,93 @@ export function DebtsByPerson({
     onReverseSettlement(settlement);
   }
 
+  const handleCopyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+        toast({
+            title: "Copiado al portapapeles",
+            description: "El resumen de deudas se ha copiado correctamente.",
+        });
+    }).catch(err => {
+        console.error("Failed to copy text: ", err);
+        toast({
+            variant: "destructive",
+            title: "Error al copiar",
+            description: "No se pudo copiar el texto al portapapeles.",
+        });
+    });
+  };
+
+  const generateSimpleExport = (debtorName: string, totals: { iou: Record<string, number>, uome: Record<string, number> }) => {
+    const userName = getUsername(user?.email);
+    let exportText = `Resumen de Deudas entre ${userName} y ${debtorName}:\n\n`;
+
+    const formatSection = (title: string, currencyTotals: Record<string, number>) => {
+        let sectionText = `${title}:\n`;
+        const entries = Object.entries(currencyTotals);
+        if (entries.length === 0) {
+            sectionText += "- No hay deudas pendientes\n";
+        } else {
+            entries.forEach(([currency, amount]) => {
+                sectionText += `- ${formatCurrency(amount, currency)}\n`;
+            });
+        }
+        return sectionText;
+    };
+    
+    exportText += formatSection(`Deudas de ${userName} con ${debtorName}`, totals.iou);
+    exportText += `\n`;
+    exportText += formatSection(`Deudas de ${debtorName} con ${userName}`, totals.uome);
+
+    handleCopyToClipboard(exportText);
+  };
+
+  const generateDetailedExport = (debtorName: string, allPersonDebts: Debt[]) => {
+      const userName = getUsername(user?.email);
+      let exportText = `Informe Detallado de Deudas entre ${userName} y ${debtorName}\n\n`;
+
+      const iouDebts = allPersonDebts.filter(d => d.type === 'iou');
+      const uomeDebts = allPersonDebts.filter(d => d.type === 'uome');
+      
+      const formatDebtDetails = (debts: Debt[]) => {
+          if (debts.length === 0) return "No hay deudas en esta categoría.\n";
+          
+          let text = "";
+          debts.forEach(debt => {
+              const totalPaid = debt.payments.reduce((acc, p) => acc + p.amount, 0);
+              const remaining = debt.amount - totalPaid;
+              text += `Concepto: ${debt.concept}\n`;
+              text += `  - Monto Original: ${formatCurrency(debt.amount, debt.currency)}\n`;
+              text += `  - Fecha: ${formatDate(debt.createdAt)}\n`;
+              text += `  - Estado: ${remaining > 0.01 ? `Pendiente (${formatCurrency(remaining, debt.currency)})` : 'Saldada'}\n`;
+              
+              if (debt.items && debt.items.length > 0) {
+                  text += "  - Ítems:\n";
+                  debt.items.forEach(item => {
+                      text += `    • ${item.name}: ${formatCurrency(item.value, debt.currency)}\n`;
+                  });
+              }
+
+              if (debt.payments.length > 0) {
+                  text += "  - Abonos:\n";
+                  debt.payments.forEach(p => {
+                      text += `    • ${formatCurrency(p.amount, debt.currency)} (${formatDate(p.date)})\n`;
+                  });
+              }
+              text += `\n`;
+          });
+          return text;
+      };
+
+      exportText += `DEUDAS DE ${userName.toUpperCase()} CON ${debtorName.toUpperCase()}:\n`;
+      exportText += formatDebtDetails(iouDebts);
+      
+      exportText += `\nDEUDAS DE ${debtorName.toUpperCase()} CON ${userName.toUpperCase()}:\n`;
+      exportText += formatDebtDetails(uomeDebts);
+
+      handleCopyToClipboard(exportText);
+  };
+
+
   if (isLoading) {
       return (
           <div className="flex items-center justify-center p-8">
@@ -116,21 +226,22 @@ export function DebtsByPerson({
         <CardContent>
             {debtsGroupedByPerson.length > 0 ? (
                 <Accordion type="multiple" className="w-full">
-                {debtsGroupedByPerson.map(({ id, name, debts, settlements, totals }) => {
+                {debtsGroupedByPerson.map(({ id, name, debts, allDebts, settlements, totals }) => {
                     const iouCurrencies = Object.keys(totals.iou);
                     const uomeCurrencies = Object.keys(totals.uome);
                     const canSettle = iouCurrencies.length === 1 && uomeCurrencies.length === 1 && iouCurrencies[0] === uomeCurrencies[0] && totals.iou[iouCurrencies[0]] > 0 && totals.uome[uomeCurrencies[0]] > 0;
                     const currency = canSettle ? iouCurrencies[0] : '';
                     const iouTotal = canSettle ? totals.iou[currency] : 0;
                     const uomeTotal = canSettle ? totals.uome[currency] : 0;
+                    const userName = getUsername(user?.email);
 
                     return (
                         <AccordionItem value={id} key={id}>
-                            <div className="flex w-full items-center justify-between hover:bg-muted/50 rounded-t-md">
-                                <AccordionTrigger className="flex-grow py-3 hover:no-underline px-4">
-                                    <div className="flex flex-col md:flex-row md:justify-between md:items-center w-full gap-2 md:gap-4">
-                                        <span className="font-semibold text-base text-left flex-shrink-0 truncate">{name}</span>
-                                        <div className="flex gap-4 text-sm text-left md:text-right items-start md:items-center flex-shrink-0">
+                            <div className="flex flex-col md:flex-row w-full items-start md:items-center justify-between hover:bg-muted/50 rounded-t-md px-4 py-2">
+                                <AccordionTrigger className="flex-grow py-1 hover:no-underline [&>svg]:ml-2 md:[&>svg]:ml-4 w-full">
+                                    <div className="flex items-center justify-between w-full">
+                                        <span className="font-semibold text-base text-left flex-shrink-0 truncate pr-4">{name}</span>
+                                        <div className="flex gap-4 text-sm text-right items-center flex-shrink-0">
                                             <div className="min-w-[80px]">
                                                 <p className="text-red-500 font-medium">Tú debes</p>
                                                 {renderTotals(totals.iou)}
@@ -142,8 +253,8 @@ export function DebtsByPerson({
                                         </div>
                                     </div>
                                 </AccordionTrigger>
-                                {canSettle && (
-                                    <div className="px-4 flex-shrink-0">
+                                <div className="flex-shrink-0 flex items-center gap-2 self-end md:self-center pt-2 md:pt-0">
+                                     {canSettle && (
                                         <SettleDebtsDialog 
                                             debtorName={name}
                                             iouTotal={iouTotal}
@@ -156,8 +267,24 @@ export function DebtsByPerson({
                                                 Cruzar
                                             </Button>
                                         </SettleDebtsDialog>
-                                    </div>
-                                )}
+                                    )}
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button variant="outline" size="sm" className="gap-1 h-7">
+                                                <Clipboard className="h-3 w-3" />
+                                                Exportar
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
+                                            <DropdownMenuItem onClick={() => generateSimpleExport(name, totals)}>
+                                                Exportar Resumen
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => generateDetailedExport(name, allDebts)}>
+                                                Exportar Detalle
+                                            </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                </div>
                             </div>
                         <AccordionContent>
                             {settlements.length > 0 && (
@@ -228,3 +355,6 @@ export function DebtsByPerson({
     </Card>
   );
 }
+
+
+    

@@ -1,9 +1,15 @@
+
 import { Timestamp } from 'firebase/firestore';
+
+export interface Item {
+  name: string;
+  value: number;
+}
 
 export interface Payment {
   id: string;
   amount: number;
-  date: string | Date | Timestamp;
+  date: Timestamp;
   receiptUrl?: string;
   isSettlement?: boolean; // Flag to identify settlement payments
   settlementId?: string;    // ID of the settlement event
@@ -15,6 +21,8 @@ export interface Debtor {
   contact?: string;
   type: 'person' | 'entity';
   userId: string;
+  paymentMethod: 'efectivo' | 'virtual';
+  paymentInfo?: string;
 }
 
 export interface Debt {
@@ -24,8 +32,10 @@ export interface Debt {
   amount: number;
   currency: string;
   concept: string;
+  items?: Item[]; // Optional array for detailed items
   type: 'iou' | 'uome'; // iou: I owe you (Tú debes), uome: You owe me (Te deben)
   createdAt: Timestamp;
+  dueDate?: Timestamp; // Optional due date
   payments: Payment[];
   receiptUrl?: string;
   userId: string;
@@ -40,4 +50,13 @@ export interface Settlement {
     amountSettled: number;
     currency: string;
     userId: string;
+}
+
+export interface PushSubscription {
+    endpoint: string;
+    expirationTime?: number | null;
+    keys: {
+        p256dh: string;
+        auth: string;
+    };
 }

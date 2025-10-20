@@ -1,7 +1,8 @@
+
 "use client";
 
 import Image from 'next/image';
-import { HandCoins, LogOut, PlusCircle, User as UserIcon } from 'lucide-react';
+import { HandCoins, LogOut, PlusCircle, User as UserIcon, Bell } from 'lucide-react';
 import { ThemeToggle } from './theme-toggle';
 import { useAuth, useUser } from '@/firebase';
 import { Button } from './ui/button';
@@ -9,7 +10,10 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { signOut } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
-import { ReactNode } from 'react';
+import { ReactNode, useState, useEffect } from 'react';
+import { useToast } from '@/hooks/use-toast';
+import { collection, addDoc } from 'firebase/firestore';
+import { useFirestore } from '@/firebase';
 
 interface DashboardHeaderProps {
     addDebtDialog: ReactNode;
@@ -19,6 +23,16 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
     const auth = useAuth();
     const { user } = useUser();
     const router = useRouter();
+    const firestore = useFirestore();
+    const { toast } = useToast();
+    const [isSubscribing, setIsSubscribing] = useState(false);
+    const [isNotificationPermissionGranted, setIsNotificationPermissionGranted] = useState(false);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined' && 'Notification' in window) {
+            setIsNotificationPermissionGranted(Notification.permission === 'granted');
+        }
+    }, []);
 
     const handleSignOut = async () => {
         if(auth) {
@@ -29,18 +43,55 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
 
     const getUsername = (email: string | null | undefined) => {
         if (!email) return 'Usuario';
-        return email.split('@')[0];
+        const username = email.split('@')[0];
+        return username.charAt(0).toUpperCase() + username.slice(1);
     }
     
     const getInitials = (email: string | null | undefined) => {
         if (!email) return 'U';
-        const username = getUsername(email);
+        const username = email.split('@')[0];
         return username.substring(0, 2).toUpperCase();
     }
 
+    const subscribeToPushNotifications = async () => {
+        if (!user || !firestore) return;
+        setIsSubscribing(true);
+
+        try {
+            if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+                throw new Error('Las notificaciones Push no son soportadas en este navegador.');
+            }
+
+            const registration = await navigator.serviceWorker.ready;
+            const subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+            });
+            
+            const subscriptionsRef = collection(firestore, 'users', user.uid, 'subscriptions');
+            await addDoc(subscriptionsRef, JSON.parse(JSON.stringify(subscription)));
+
+            toast({
+                title: '¡Suscripción exitosa!',
+                description: 'Recibirás notificaciones de tus deudas.',
+            });
+            setIsNotificationPermissionGranted(true);
+        } catch (error) {
+            console.error('Error al suscribirse a las notificaciones:', error);
+            const description = error instanceof Error ? error.message : 'Asegúrate de permitir las notificaciones en tu navegador.';
+            toast({
+                variant: 'destructive',
+                title: 'Error de suscripción',
+                description: description,
+            });
+        } finally {
+            setIsSubscribing(false);
+        }
+    };
+
 
     return (
-        <header className="sticky top-0 flex h-14 md:h-16 items-center gap-4 border-b bg-background px-2 md:px-6 z-10">
+        <header className="sticky top-0 flex h-14 md:h-16 items-center gap-4 border-b bg-background px-4 md:px-6 z-10">
             <a href="#" className="flex items-center gap-2 font-semibold">
                 <HandCoins className="h-5 w-5 md:h-6 md:w-6 text-primary" />
                 <span className="font-headline text-base md:text-lg">Deudas</span>
@@ -71,6 +122,15 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
                                     </p>
                                 </div>
                             </DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                             <DropdownMenuItem 
+                                onClick={subscribeToPushNotifications} 
+                                disabled={isSubscribing || isNotificationPermissionGranted}
+                                className="gap-2 cursor-pointer"
+                            >
+                                <Bell className="h-4 w-4" />
+                                {isNotificationPermissionGranted ? 'Notificaciones activadas' : isSubscribing ? 'Activando...' : 'Activar Notificaciones'}
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onClick={handleSignOut} className="gap-2 cursor-pointer">
                                 <LogOut className="h-4 w-4" />
