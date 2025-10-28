@@ -5,9 +5,8 @@ import createNextPwa from 'next-pwa';
 const withPWA = createNextPwa({
   dest: 'public',
   disable: process.env.NODE_ENV === 'development',
-  // register: true, // Esto no es necesario por defecto con next-pwa
-  // scope: '/app',
-  sw: 'service-worker.js', // nombre del service worker
+  register: true,
+  skipWaiting: true,
 });
 
 const nextConfig: NextConfig = {

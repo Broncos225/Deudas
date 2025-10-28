@@ -2,7 +2,7 @@
 "use client";
 
 import Image from 'next/image';
-import { HandCoins, LogOut, PlusCircle, User as UserIcon, Bell } from 'lucide-react';
+import { HandCoins, LogOut, PlusCircle, User as UserIcon, Bell, Users } from 'lucide-react';
 import { ThemeToggle } from './theme-toggle';
 import { useAuth, useUser } from '@/firebase';
 import { Button } from './ui/button';
@@ -14,6 +14,7 @@ import { ReactNode, useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { collection, addDoc } from 'firebase/firestore';
 import { useFirestore } from '@/firebase';
+import Link from 'next/link';
 
 interface DashboardHeaderProps {
     addDebtDialog: ReactNode;
@@ -68,9 +69,8 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
                 applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
             });
             
-            // Log the subscription object to the console for debugging
-            console.log('Push Subscription:', subscription.toJSON());
-            
+            console.log('Subscription object:', JSON.stringify(subscription));
+
             const subscriptionsRef = collection(firestore, 'users', user.uid, 'subscriptions');
             await addDoc(subscriptionsRef, JSON.parse(JSON.stringify(subscription)));
 
@@ -95,7 +95,7 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
 
     return (
         <header className="sticky top-0 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6 z-10">
-            <a href="#" className="flex items-center gap-2 font-semibold text-lg">
+            <a href="/" className="flex items-center gap-2 font-semibold text-lg">
                 <HandCoins className="h-6 w-6 text-primary" />
                 <span className="font-headline hidden md:inline-block">Deudas</span>
             </a>
@@ -104,6 +104,12 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
                   {/* Search bar removed from here */}
                 </div>
                 {addDebtDialog}
+                <Button asChild variant="outline" size="sm" className="gap-1 text-xs md:text-sm">
+                    <Link href="/split-expenses">
+                        <Users className="h-4 w-4" />
+                        <span className="hidden md:inline">Dividir Gastos</span>
+                    </Link>
+                </Button>
                 <ThemeToggle />
                 {user && (
                     <DropdownMenu>

@@ -65,7 +65,7 @@ interface AddDebtDialogProps {
   debtToEdit?: Debt;
   onAddDebt?: (newDebt: Omit<Debt, 'id' | 'payments' | 'userId' | 'debtorName'> & { receiptUrl?: string }) => void;
   onEditDebt?: (debtId: string, updatedDebt: Partial<Omit<Debt, 'id'>>, debtorName: string) => void;
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }
 
 export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, children }: AddDebtDialogProps) {
@@ -160,17 +160,22 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
     
     const finalAmount = hasItems ? (data.items || []).reduce((sum, item) => sum + (item.value || 0), 0) : data.amount;
 
-    const debtData = {
+    const baseDebtData = {
         ...data,
         amount: finalAmount,
         items: hasItems ? data.items : [],
     };
+    
+    // Explicitly delete dueDate if it's undefined to avoid Firestore errors.
+    if (baseDebtData.dueDate === undefined) {
+      delete (baseDebtData as Partial<typeof baseDebtData>).dueDate;
+    }
 
     if (isEditMode && debtToEdit && onEditDebt) {
         const updatedDebt: Partial<Omit<Debt, 'id'>> = {
-            ...debtData,
+            ...baseDebtData,
             createdAt: Timestamp.fromDate(data.createdAt),
-            dueDate: data.dueDate ? Timestamp.fromDate(data.dueDate) : undefined,
+            ...(data.dueDate && { dueDate: Timestamp.fromDate(data.dueDate) }),
             debtorName: selectedDebtor.name,
             ...(receiptDataUrl && { receiptUrl: receiptDataUrl }),
         };
@@ -181,10 +186,10 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
             description: `La deuda de ${selectedDebtor.name} ha sido actualizada.`,
         });
     } else if (onAddDebt) {
-        const newDebt: Omit<Debt, 'id' | 'payments' | 'userId' | 'debtorName'> & { receiptUrl?: string } = {
-          ...debtData,
+        const newDebt = {
+          ...baseDebtData,
           createdAt: Timestamp.fromDate(data.createdAt),
-          dueDate: data.dueDate ? Timestamp.fromDate(data.dueDate) : undefined,
+          ...(data.dueDate && { dueDate: Timestamp.fromDate(data.dueDate) }),
           ...(receiptDataUrl && { receiptUrl: receiptDataUrl }),
         };
         onAddDebt(newDebt);
@@ -482,3 +487,5 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
     </Dialog>
   );
 }
+
+    

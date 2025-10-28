@@ -3,6 +3,7 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 import { FirebaseClientProvider } from '@/firebase';
 import { ThemeProvider } from '@/components/theme-provider';
+import { AppDataProvider } from '@/contexts/app-data-context';
 
 export const metadata: Metadata = {
   title: 'Deudas',
@@ -34,8 +35,10 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <FirebaseClientProvider>
-            {children}
-            <Toaster />
+            <AppDataProvider>
+              {children}
+              <Toaster />
+            </AppDataProvider>
           </FirebaseClientProvider>
         </ThemeProvider>
       </body>
