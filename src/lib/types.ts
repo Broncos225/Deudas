@@ -21,8 +21,12 @@ export interface Debtor {
   contact?: string;
   type: 'person' | 'entity';
   userId: string;
-  paymentMethod: 'efectivo' | 'virtual';
-  paymentInfo?: string;
+  // New, more detailed payment fields
+  paymentMethod?: 'Efectivo' | 'Transferencia' | 'Tarjeta' | 'Otro';
+  paymentInfo?: string; // For account number, etc.
+  // New fields for app user linking
+  isAppUser?: boolean;
+  appUserId?: string; // To store the linked user's UID
 }
 
 export interface Debt {
@@ -38,7 +42,11 @@ export interface Debt {
   dueDate?: Timestamp; // Optional due date
   payments: Payment[];
   receiptUrl?: string;
-  userId: string;
+  userId?: string; // For private debts
+  userOneId?: string; // For shared debts
+  userTwoId?: string; // For shared debts
+  participants?: string[]; // Array with userOneId and userTwoId for querying
+  isShared?: boolean;
   isSettled?: boolean; // No longer used for logic, but for historical tracking if needed
   settlementId?: string; // Which settlement it was part of
 }
@@ -50,13 +58,4 @@ export interface Settlement {
     amountSettled: number;
     currency: string;
     userId: string;
-}
-
-export interface PushSubscription {
-    endpoint: string;
-    expirationTime?: number | null;
-    keys: {
-        p256dh: string;
-        auth: string;
-    };
 }

@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowDownLeft, ArrowUpRight, LayoutGrid, List, Loader, PlusCircle, FileDown } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking, useUser } from '@/firebase';
-import { collection, doc, Timestamp, writeBatch } from 'firebase/firestore';
+import { collection, doc, Timestamp, writeBatch, query, where, getDocs, addDoc } from 'firebase/firestore';
 import { DebtorDetails } from './debtor-details';
 import { DebtsByPerson } from './debts-by-person';
 import { Skeleton } from './ui/skeleton';
@@ -53,10 +53,16 @@ export default function DebtDashboard() {
     return collection(firestore, 'users', user.uid, 'debtors');
   }, [firestore, user?.uid]);
 
-  const debtsRef = useMemoFirebase(() => {
+  const privateDebtsRef = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
     return collection(firestore, 'users', user.uid, 'debts');
   }, [firestore, user?.uid]);
+
+  const sharedDebtsQuery = useMemoFirebase(() => {
+    if (!firestore || !user?.uid) return null;
+    return query(collection(firestore, 'debts_shared'), where('participants', 'array-contains', user.uid));
+  }, [firestore, user?.uid]);
+
 
   const settlementsRef = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
@@ -64,52 +70,138 @@ export default function DebtDashboard() {
     }, [firestore, user?.uid]);
     
   const { data: debtors, isLoading: isLoadingDebtors } = useCollection<Debtor>(debtorsRef);
-  const { data: debts, isLoading: isLoadingDebtsData } = useCollection<Debt>(debtsRef);
+  const { data: privateDebts, isLoading: isLoadingPrivateDebts } = useCollection<Debt>(privateDebtsRef);
+  const { data: sharedDebtsData, isLoading: isLoadingSharedDebts } = useCollection<Debt>(sharedDebtsQuery);
   const { data: settlements, isLoading: isLoadingSettlements } = useCollection<Settlement>(settlementsRef);
 
-  const handleAddDebt = (newDebt: Omit<Debt, 'id' | 'payments' | 'userId' | 'debtorName'> & { receiptUrl?: string }) => {
-    if (!debtsRef || !user || !debtors) return;
+  const debts = useMemo(() => {
+    if (!user || !debtors) return [];
+  
+    // Filter out private debts that have been migrated
+    const nonSharedPrivateDebts = (privateDebts || []).filter(d => !d.isShared);
+    
+    const allDebts: Debt[] = [...nonSharedPrivateDebts];
+  
+    if (sharedDebtsData) {
+      const processedSharedDebts = sharedDebtsData.map(sharedDebt => {
+        const otherUserId = sharedDebt.participants?.find(pId => pId !== user.uid);
+        const localDebtor = debtors.find(d => d.isAppUser && d.appUserId === otherUserId);
+  
+        if (localDebtor) {
+          return {
+            ...sharedDebt,
+            debtorId: localDebtor.id,
+            debtorName: localDebtor.name,
+          };
+        }
+        
+        // Fallback name if no local contact is found for the shared debt participant
+        const creatorId = sharedDebt.participants?.find(pId => pId === sharedDebt.userId);
+        const fallbackName = `Usuario ${otherUserId?.substring(0,5)}...`;
+        
+        return {
+          ...sharedDebt,
+          debtorName: fallbackName,
+          debtorId: otherUserId || 'unknown'
+        };
+      });
+      allDebts.push(...processedSharedDebts);
+    }
+    
+    // Use a Map to ensure debts are unique by ID, giving preference to the latest version.
+    const uniqueDebts = new Map(allDebts.map(d => [d.id, d]));
+    return Array.from(uniqueDebts.values());
+  
+  }, [privateDebts, sharedDebtsData, debtors, user]);
+
+
+
+  const handleAddDebt = (newDebt: Omit<Debt, 'id' | 'payments' | 'debtorName'>) => {
+    if (!firestore || !user || !debtors) return;
     const debtor = debtors.find(d => d.id === newDebt.debtorId);
     if (!debtor) return;
 
-    const debtToAdd: Omit<Debt, 'id'> = {
-      ...newDebt,
-      debtorName: debtor.name,
-      payments: [],
-      userId: user.uid,
-      isSettled: false,
+    const debtToAdd: any = {
+        ...newDebt,
+        debtorName: debtor.name,
+        payments: [],
+        isSettled: false,
     };
-    addDocumentNonBlocking(debtsRef, debtToAdd);
+    
+    if (debtor.isAppUser && debtor.appUserId) {
+        const participants = [user.uid, debtor.appUserId].sort();
+        debtToAdd.isShared = true;
+        debtToAdd.participants = participants;
+        debtToAdd.userOneId = participants[0];
+        debtToAdd.userTwoId = participants[1];
+        debtToAdd.userId = user.uid; // The creator's ID
+    } else {
+        debtToAdd.isShared = false;
+        debtToAdd.userId = user.uid;
+    }
+
+    if (debtToAdd.dueDate === undefined) delete debtToAdd.dueDate;
+    if (debtToAdd.items === undefined) delete debtToAdd.items;
+
+    const collectionRef = debtToAdd.isShared 
+      ? collection(firestore, 'debts_shared')
+      : collection(firestore, 'users', user.uid, 'debts');
+
+    addDocumentNonBlocking(collectionRef, debtToAdd);
   };
   
   const handleEditDebt = (debtId: string, updatedDebt: Partial<Omit<Debt, 'id'>>, debtorName: string) => {
-    if (!debtsRef) return;
-    const debtDocRef = doc(debtsRef, debtId);
-    updateDocumentNonBlocking(debtDocRef, { ...updatedDebt, debtorName });
+    if (!firestore || !user || !debts) return;
+    const debt = debts.find(d => d.id === debtId);
+    if (!debt) return;
+    
+    const collectionPath = debt.isShared ? 'debts_shared' : `users/${user.uid}/debts`;
+    const debtDocRef = doc(firestore, collectionPath, debtId);
+
+    const { debtorName: localName, ...globalUpdateData } = updatedDebt;
+
+    if (globalUpdateData.dueDate === undefined) delete globalUpdateData.dueDate;
+    if (globalUpdateData.items === undefined) delete globalUpdateData.items;
+    
+    updateDocumentNonBlocking(debtDocRef, globalUpdateData);
   };
   
+  const handleDeleteDebtor = (debtorId: string) => {
+    if (!firestore || !user || !debtors) return;
+    const debtorDocRef = doc(firestore, 'users', user.uid, 'debtors', debtorId);
+    deleteDocumentNonBlocking(debtorDocRef);
+  };
+
   const handleDeleteDebt = (debtId: string) => {
-    if (!debtsRef) return;
-    const debtDocRef = doc(debtsRef, debtId);
+    if (!firestore || !user || !debts) return;
+    const debt = debts.find(d => d.id === debtId);
+    if (!debt) return;
+
+    const collectionPath = debt.isShared ? 'debts_shared' : `users/${user.uid}/debts`;
+    const debtDocRef = doc(firestore, collectionPath, debtId);
+    
     deleteDocumentNonBlocking(debtDocRef);
   };
 
   const handleAddPayment = (debtId: string, newPayment: Omit<Payment, 'id'>) => {
-    if (!debtsRef || !debts) return;
+    if (!firestore || !user || !debts) return;
     const debt = debts.find(d => d.id === debtId);
     if (!debt) return;
     
     const paymentToAdd: Payment = {
       ...newPayment,
-      id: new Date().getTime().toString(),
+      id: doc(collection(firestore, 'dummy')).id, // Firestore-like random ID
     };
 
     const updatedPayments = [...debt.payments, paymentToAdd];
-    updateDocumentNonBlocking(doc(debtsRef, debtId), { payments: updatedPayments });
+    const collectionPath = debt.isShared ? 'debts_shared' : `users/${user.uid}/debts`;
+    const debtDocRef = doc(firestore, collectionPath, debtId);
+
+    updateDocumentNonBlocking(debtDocRef, { payments: updatedPayments });
   };
 
   const handleEditPayment = (debtId: string, paymentId: string, updatedPaymentData: Partial<Omit<Payment, 'id'>>) => {
-    if (!debtsRef || !debts) return;
+    if (!firestore || !user || !debts) return;
     const debt = debts.find(d => d.id === debtId);
     if (!debt) return;
 
@@ -119,17 +211,22 @@ export default function DebtDashboard() {
         }
         return p;
     });
+    
+    const collectionPath = debt.isShared ? 'debts_shared' : `users/${user.uid}/debts`;
+    const debtDocRef = doc(firestore, collectionPath, debtId);
 
-    updateDocumentNonBlocking(doc(debtsRef, debtId), { payments: updatedPayments });
+    updateDocumentNonBlocking(debtDocRef, { payments: updatedPayments });
   };
 
   const handleDeletePayment = (debtId: string, paymentId: string) => {
-    if (!debtsRef || !debts) return;
+    if (!firestore || !user || !debts) return;
     const debt = debts.find(d => d.id === debtId);
     if (!debt) return;
 
     const updatedPayments = debt.payments.filter(p => p.id !== paymentId);
-    updateDocumentNonBlocking(doc(debtsRef, debtId), { payments: updatedPayments });
+    const collectionPath = debt.isShared ? 'debts_shared' : `users/${user.uid}/debts`;
+    const debtDocRef = doc(firestore, collectionPath, debtId);
+    updateDocumentNonBlocking(debtDocRef, { payments: updatedPayments });
   };
   
   const handleSettleDebts = async (debtorId: string, iouTotal: number, uomeTotal: number, currency: string) => {
@@ -142,25 +239,20 @@ export default function DebtDashboard() {
     
     const settlementPaymentId = `settle_${settlementId}`;
     
-    // Debts where I owe money (iou)
     const iouDebts = debts.filter(d => d.debtorId === debtorId && d.type === 'iou' && !d.isSettled);
-    // Debts where they owe me money (uome)
     const uomeDebts = debts.filter(d => d.debtorId === debtorId && d.type === 'uome' && !d.isSettled);
 
     let debtsToCredit: Debt[];
     let debtsToDebit: Debt[];
 
     if (iouTotal > uomeTotal) {
-        // I owe more. Debit my 'iou' debts, credit their 'uome' debts.
         debtsToDebit = iouDebts;
         debtsToCredit = uomeDebts;
     } else {
-        // They owe more or it's equal. Debit their 'uome' debts, credit my 'iou' debts.
         debtsToDebit = uomeDebts;
         debtsToCredit = iouDebts;
     }
 
-    // Apply the settlement as a payment to the smaller side, effectively paying it off.
     let creditRemaining = settlementAmount;
     for (const debt of debtsToCredit) {
         const debtRemaining = debt.amount - debt.payments.reduce((acc, p) => acc + p.amount, 0);
@@ -174,13 +266,13 @@ export default function DebtDashboard() {
                 isSettlement: true,
                 settlementId: settlementId,
             };
-            const debtRef = doc(firestore, 'users', user.uid, 'debts', debt.id);
+            const collectionPath = debt.isShared ? 'debts_shared' : `users/${user.uid}/debts`;
+            const debtRef = doc(firestore, collectionPath, debt.id);
             batch.update(debtRef, { payments: [...debt.payments, newPayment] });
             creditRemaining -= paymentAmount;
         }
     }
 
-    // Apply the settlement as a payment to the larger side.
     let debitRemaining = settlementAmount;
     for (const debt of debtsToDebit) {
         const debtRemaining = debt.amount - debt.payments.reduce((acc, p) => acc + p.amount, 0);
@@ -194,13 +286,13 @@ export default function DebtDashboard() {
                 isSettlement: true,
                 settlementId: settlementId,
             };
-            const debtRef = doc(firestore, 'users', user.uid, 'debts', debt.id);
+            const collectionPath = debt.isShared ? 'debts_shared' : `users/${user.uid}/debts`;
+            const debtRef = doc(firestore, collectionPath, debt.id);
             batch.update(debtRef, { payments: [...debt.payments, newPayment] });
             debitRemaining -= paymentAmount;
         }
     }
 
-    // Record the settlement event itself
     const settlementDocRef = doc(firestore, 'users', user.uid, 'settlements', settlementId);
     const newSettlement: Settlement = {
         id: settlementId,
@@ -229,17 +321,15 @@ export default function DebtDashboard() {
   
     const batch = writeBatch(firestore);
   
-    // Find all debts that have a payment from this settlement
     const relatedDebts = debts.filter(d => d.payments.some(p => p.settlementId === settlement.id));
   
     for (const debt of relatedDebts) {
-      // Filter out the payments related to this settlement
       const updatedPayments = debt.payments.filter(p => p.settlementId !== settlement.id);
-      const debtRef = doc(firestore, 'users', user.uid, 'debts', debt.id);
+      const collectionPath = debt.isShared ? 'debts_shared' : `users/${user.uid}/debts`;
+      const debtRef = doc(firestore, collectionPath, debt.id);
       batch.update(debtRef, { payments: updatedPayments });
     }
   
-    // Delete the settlement record
     const settlementRef = doc(firestore, 'users', user.uid, 'settlements', settlement.id);
     batch.delete(settlementRef);
   
@@ -265,15 +355,14 @@ export default function DebtDashboard() {
     if (!debts) return { totalIOwe: 0, totalOwedToMe: 0 };
     
     const totals = debts.reduce((acc, debt) => {
-      const rate = debt.currency === 'USD' ? 4000 : debt.currency === 'EUR' ? 4500: 1; // Example fixed rate
+      const rate = debt.currency === 'USD' ? 4000 : debt.currency === 'EUR' ? 4500: 1;
       const remaining = debt.amount - debt.payments.reduce((sum, p) => sum + p.amount, 0);
 
-      // Only consider debts with a remaining balance
       if (remaining <= 0) return acc;
       
-      if (debt.type === 'iou') { // I owe you
+      if (debt.type === 'iou') {
         acc.totalIOwe += remaining * rate;
-      } else { // You owe me
+      } else {
         acc.totalOwedToMe += remaining * rate;
       }
       return acc;
@@ -282,39 +371,157 @@ export default function DebtDashboard() {
     return totals;
   }, [debts]);
 
-  const handleAddDebtor = (newDebtor: Omit<Debtor, 'id' | 'userId'>) => {
+
+  const handleAddDebtor = (newDebtorData: Omit<Debtor, 'id' | 'userId'>) => {
     if (!debtorsRef || !user) return;
-    const debtorToAdd = {
-      ...newDebtor,
+    const debtorToAdd: Omit<Debtor, 'id'> = {
+      ...newDebtorData,
       userId: user.uid,
     };
-    addDocumentNonBlocking(debtorsRef, debtorToAdd);
+    
+    const cleanDebtorData = Object.fromEntries(
+      Object.entries(debtorToAdd).filter(([_, value]) => value !== undefined && value !== '')
+    );
+
+    addDocumentNonBlocking(debtorsRef, cleanDebtorData);
   };
 
-  const handleEditDebtor = (debtorId: string, updatedData: Omit<Debtor, 'id' | 'userId'>) => {
-    if (!debtorsRef) return;
-    const debtorDocRef = doc(debtorsRef, debtorId);
-    updateDocumentNonBlocking(debtorDocRef, updatedData);
+  const handleEditDebtorAndCreateMirror = async (
+    debtorId: string, 
+    updatedData: Omit<Debtor, 'id' | 'userId'>, 
+    originalDebtor: Debtor
+  ) => {
+    if (!firestore || !user) {
+        return;
+    }
+
+    const debtorDocRef = doc(firestore, 'users', user.uid, 'debtors', debtorId);
+    
+    const cleanUpdatedData = Object.fromEntries(
+        Object.entries(updatedData).filter(([_, value]) => value !== undefined && value !== '')
+    );
+
+    updateDocumentNonBlocking(debtorDocRef, cleanUpdatedData);
+
+    const wasJustLinked = updatedData.isAppUser && updatedData.appUserId;
+    const uidIsNew = updatedData.appUserId !== originalDebtor.appUserId;
+
+    if (wasJustLinked && uidIsNew) {
+        const linkedUserId = updatedData.appUserId as string;
+        if (linkedUserId === user.uid) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: 'No puedes vincularte a ti mismo.',
+            });
+            return;
+        }
+
+        const mirrorContactData = {
+            name: user.displayName || user.email?.split('@')[0] || `Usuario ${user.uid.substring(0, 5)}`,
+            type: "person" as const,
+            isAppUser: true,
+            appUserId: user.uid,
+            userId: linkedUserId,
+            paymentMethod: "Otro" as const,
+            paymentInfo: "Usuario de la App"
+        };
+        
+        try {
+            const mirrorDebtorsColRef = collection(firestore, `users/${linkedUserId}/debtors`);
+            await addDoc(mirrorDebtorsColRef, mirrorContactData);
+            
+            toast({
+                title: "¡Contacto Vinculado!",
+                description: `Se ha creado un contacto espejo exitosamente. Ahora puedes sincronizar las deudas antiguas.`,
+            });
+        } catch (e: any) {
+            console.error('❌ ERROR creating mirror contact:', e);
+            toast({
+                variant: 'destructive',
+                title: 'Error al vincular',
+                description: e.code === 'permission-denied' 
+                    ? 'No tienes permisos para crear este contacto. Verifica las reglas de Firestore.'
+                    : `Error: ${e.message}`,
+            });
+        }
+    }
+};
+
+  const handleSyncDebts = async (debtorId: string) => {
+    if (!firestore || !user || !debtors || !privateDebts) {
+      toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar los datos necesarios." });
+      return;
+    }
+
+    const debtor = debtors.find(d => d.id === debtorId);
+    if (!debtor || !debtor.isAppUser || !debtor.appUserId) {
+      toast({ variant: "destructive", title: "Error", description: "El contacto no está vinculado a un usuario de la app." });
+      return;
+    }
+    const linkedUserId = debtor.appUserId;
+    const participants = [user.uid, linkedUserId].sort();
+
+    const privateDebtsToSync = privateDebts.filter(d => d.debtorId === debtorId && !d.isShared);
+
+    if (privateDebtsToSync.length === 0) {
+      toast({ title: "Nada que Sincronizar", description: "No se encontraron deudas privadas antiguas con este contacto." });
+      return;
+    }
+    
+    toast({ title: "Sincronizando...", description: `Moviendo ${privateDebtsToSync.length} deudas a compartidas.` });
+
+    const batch = writeBatch(firestore);
+
+    for (const debt of privateDebtsToSync) {
+      // 1. Define reference to the new shared debt
+      const newSharedDebtRef = doc(collection(firestore, 'debts_shared'));
+
+      // 2. Prepare the new shared debt data
+      const newSharedDebtData: Omit<Debt, 'id'> = {
+        ...debt,
+        isShared: true,
+        participants: participants,
+        userOneId: participants[0],
+        userTwoId: participants[1],
+      };
+      // `userId` is kept to know who originally created it
+
+      // 3. Add set operation for the new shared debt
+      batch.set(newSharedDebtRef, newSharedDebtData);
+
+      // 4. Add delete operation for the old private debt
+      const oldPrivateDebtRef = doc(firestore, 'users', user.uid, 'debts', debt.id);
+      batch.delete(oldPrivateDebtRef);
+    }
+    
+    try {
+      await batch.commit();
+      toast({
+        title: "¡Sincronización Completa!",
+        description: `${privateDebtsToSync.length} deudas han sido compartidas exitosamente con ${debtor.name}.`,
+      });
+    } catch (e: any) {
+      console.error("Error during debt synchronization batch commit:", e);
+      toast({
+        variant: "destructive",
+        title: "Error de Sincronización",
+        description: `No se pudieron compartir las deudas. ${e.message}`,
+      });
+    }
   };
 
-  const handleDeleteDebtor = (debtorId: string) => {
-    if (!debtorsRef) return;
-    const debtorDocRef = doc(debtorsRef, debtorId);
-    deleteDocumentNonBlocking(debtorDocRef);
-  };
 
   const filteredDebts = useMemo(() => {
     if (!debts) return [];
     const query = searchQuery.toLowerCase();
     
     return debts.filter(debt => {
-        // Search filter
         const matchesSearch = query === "" ||
             debt.concept.toLowerCase().includes(query) ||
             debt.debtorName.toLowerCase().includes(query) ||
             (debt.items && debt.items.some(item => item.name.toLowerCase().includes(query)));
 
-        // Other filters
         const matchesType = filters.type === 'all' || debt.type === filters.type;
         const matchesCurrency = filters.currency === 'all' || debt.currency === filters.currency;
         const matchesDebtor = filters.debtorId === 'all' || debt.debtorId === filters.debtorId;
@@ -323,6 +530,8 @@ export default function DebtDashboard() {
     });
 }, [debts, searchQuery, filters]);
 
+
+  const isLoading = isLoadingDebtors || isLoadingPrivateDebts || isLoadingSharedDebts || isLoadingSettlements;
 
   if (isUserLoading || !user) {
     return (
@@ -341,8 +550,6 @@ export default function DebtDashboard() {
         </Button>
     </AddDebtDialog>
   );
-
-  const isLoading = isLoadingDebtors || isLoadingDebtsData || isLoadingSettlements;
   
   const renderContentForDebts = (isSettled: boolean) => {
     const finalFilteredDebts = filteredDebts?.filter(d => {
@@ -360,7 +567,7 @@ export default function DebtDashboard() {
             onDeleteDebt={handleDeleteDebt}
             onEditPayment={handleEditPayment}
             onDeletePayment={handleDeletePayment}
-            isLoading={isLoadingDebtsData || isLoadingDebtors}
+            isLoading={isLoading}
         />;
     }
     
@@ -372,7 +579,7 @@ export default function DebtDashboard() {
         onDeleteDebt={handleDeleteDebt}
         onEditPayment={handleEditPayment}
         onDeletePayment={handleDeletePayment}
-        isLoading={isLoadingDebtsData || isLoadingDebtors}
+        isLoading={isLoading}
         showSettled={isSettled}
       />;
   };
@@ -389,7 +596,7 @@ export default function DebtDashboard() {
               <ArrowDownLeft className="h-4 w-4 text-red-500" />
             </CardHeader>
             <CardContent>
-              {isLoadingDebtsData ? (
+              {isLoading ? (
                 <Skeleton className="h-8 w-3/4" />
               ) : (
                 <div className="text-2xl font-bold font-headline text-red-500">
@@ -404,7 +611,7 @@ export default function DebtDashboard() {
                <ArrowUpRight className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-               {isLoadingDebtsData ? (
+               {isLoading ? (
                 <Skeleton className="h-8 w-3/4" />
               ) : (
                 <div className="text-2xl font-bold font-headline text-green-500">
@@ -494,8 +701,9 @@ export default function DebtDashboard() {
               <DebtorDetails
                 debtors={debtors || []}
                 onAddDebtor={handleAddDebtor}
-                onEditDebtor={handleEditDebtor}
+                onEditDebtor={handleEditDebtorAndCreateMirror}
                 onDeleteDebtor={handleDeleteDebtor}
+                onSyncDebts={handleSyncDebts}
                 isLoading={isLoadingDebtors}
               />
             </TabsContent>
@@ -504,5 +712,8 @@ export default function DebtDashboard() {
     </div>
   );
 }
+
+    
+    
 
     

@@ -43,6 +43,7 @@ import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { Timestamp } from 'firebase/firestore';
 import { ScrollArea } from './ui/scroll-area';
+import { useUser } from '@/firebase';
 
 const debtFormSchema = z.object({
   debtorId: z.string({ required_error: "Debes seleccionar un deudor." }),
@@ -63,7 +64,7 @@ type DebtFormValues = z.infer<typeof debtFormSchema>;
 interface AddDebtDialogProps {
   debtors: Debtor[];
   debtToEdit?: Debt;
-  onAddDebt?: (newDebt: Omit<Debt, 'id' | 'payments' | 'userId' | 'debtorName'> & { receiptUrl?: string }) => void;
+  onAddDebt?: (newDebt: Omit<Debt, 'id' | 'payments' | 'debtorName'> & { receiptUrl?: string }) => void;
   onEditDebt?: (debtId: string, updatedDebt: Partial<Omit<Debt, 'id'>>, debtorName: string) => void;
   children?: React.ReactNode;
 }
@@ -71,6 +72,7 @@ interface AddDebtDialogProps {
 export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, children }: AddDebtDialogProps) {
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
+  const { user } = useUser();
   const isEditMode = !!debtToEdit;
   const [selectedFile, setSelectedFile] = useState<FileList | null>(null);
 
@@ -133,13 +135,13 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
 
 
   async function onSubmit(data: DebtFormValues) {
+    if (!user) {
+        toast({ variant: "destructive", title: "Error", description: "Debes iniciar sesión para crear una deuda."});
+        return;
+    }
     const selectedDebtor = debtors.find(d => d.id === data.debtorId);
     if (!selectedDebtor) {
-        toast({
-            variant: "destructive",
-            title: "Error",
-            description: "Deudor no encontrado.",
-        });
+        toast({ variant: "destructive", title: "Error", description: "Deudor no encontrado." });
         return;
     }
 
@@ -149,54 +151,57 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
       try {
         receiptDataUrl = await fileToDataUrl(selectedFile[0]);
       } catch (error) {
-        toast({
-            variant: "destructive",
-            title: "Error de Imagen",
-            description: "No se pudo procesar la imagen del recibo.",
-        });
+        toast({ variant: "destructive", title: "Error de Imagen", description: "No se pudo procesar la imagen del recibo."});
         return;
       }
     }
     
     const finalAmount = hasItems ? (data.items || []).reduce((sum, item) => sum + (item.value || 0), 0) : data.amount;
 
-    const baseDebtData = {
+    const baseDebtData: Partial<Debt> = {
         ...data,
         amount: finalAmount,
         items: hasItems ? data.items : [],
+        createdAt: Timestamp.fromDate(data.createdAt),
+        ...(data.dueDate && { dueDate: Timestamp.fromDate(data.dueDate) }),
+        ...(receiptDataUrl && { receiptUrl: receiptDataUrl }),
     };
     
-    // Explicitly delete dueDate if it's undefined to avoid Firestore errors.
     if (baseDebtData.dueDate === undefined) {
-      delete (baseDebtData as Partial<typeof baseDebtData>).dueDate;
+      delete baseDebtData.dueDate;
+    }
+
+    // Shared Debt Logic
+    if (selectedDebtor.isAppUser && selectedDebtor.appUserId) {
+        const participants = [user.uid, selectedDebtor.appUserId].sort();
+        baseDebtData.isShared = true;
+        baseDebtData.userOneId = participants[0];
+        baseDebtData.userTwoId = participants[1];
+        baseDebtData.participants = participants;
+        delete baseDebtData.userId; // Not needed for shared debts
+    } else {
+        baseDebtData.userId = user.uid;
+        baseDebtData.isShared = false;
     }
 
     if (isEditMode && debtToEdit && onEditDebt) {
-        const updatedDebt: Partial<Omit<Debt, 'id'>> = {
+      const updatedDebt: Partial<Omit<Debt, 'id'>> = {
             ...baseDebtData,
-            createdAt: Timestamp.fromDate(data.createdAt),
-            ...(data.dueDate && { dueDate: Timestamp.fromDate(data.dueDate) }),
             debtorName: selectedDebtor.name,
-            ...(receiptDataUrl && { receiptUrl: receiptDataUrl }),
         };
-        
+        // If the contact type changes, we may need to adjust the participants list
+        if (updatedDebt.isShared && updatedDebt.userOneId && updatedDebt.userTwoId) {
+            updatedDebt.participants = [updatedDebt.userOneId, updatedDebt.userTwoId].sort();
+        } else {
+            delete updatedDebt.participants;
+            delete updatedDebt.userOneId;
+            delete updatedDebt.userTwoId;
+        }
         onEditDebt(debtToEdit.id, updatedDebt, selectedDebtor.name);
-        toast({
-            title: "Deuda Actualizada",
-            description: `La deuda de ${selectedDebtor.name} ha sido actualizada.`,
-        });
+        toast({ title: "Deuda Actualizada", description: `La deuda de ${selectedDebtor.name} ha sido actualizada.` });
     } else if (onAddDebt) {
-        const newDebt = {
-          ...baseDebtData,
-          createdAt: Timestamp.fromDate(data.createdAt),
-          ...(data.dueDate && { dueDate: Timestamp.fromDate(data.dueDate) }),
-          ...(receiptDataUrl && { receiptUrl: receiptDataUrl }),
-        };
-        onAddDebt(newDebt);
-        toast({
-          title: "Deuda Agregada",
-          description: `Una nueva deuda para ${selectedDebtor.name} ha sido creada.`,
-        });
+        onAddDebt(baseDebtData as Omit<Debt, 'id' | 'payments' | 'debtorName'>);
+        toast({ title: "Deuda Agregada", description: `Una nueva deuda para ${selectedDebtor.name} ha sido creada.` });
     }
     
     setOpen(false);

@@ -243,11 +243,11 @@ export function DebtsByPerson({
                                         <span className="font-semibold text-base text-left flex-shrink-0 truncate pr-4">{name}</span>
                                         <div className="flex gap-4 text-sm text-right items-center flex-shrink-0">
                                             <div className="min-w-[80px]">
-                                                <p className="text-red-500 font-medium">Tú debes</p>
+                                                <p className="text-red-500 font-medium">Pagar</p>
                                                 {renderTotals(totals.iou)}
                                             </div>
                                             <div className="min-w-[80px]">
-                                                <p className="text-green-500 font-medium">Te deben</p>
+                                                <p className="text-green-500 font-medium">Cobrar</p>
                                                 {renderTotals(totals.uome)}
                                             </div>
                                         </div>
@@ -330,7 +330,7 @@ export function DebtsByPerson({
                             )}
                             <div className="px-4 pb-4">
                                 <DebtsGrid
-                                    debts={debts.filter(d => d.debtorId === id && (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) > 0.01)}
+                                    debts={debts}
                                     debtors={debtors}
                                     onAddPayment={onAddPayment}
                                     onEditDebt={onEditDebt}
@@ -355,6 +355,5 @@ export function DebtsByPerson({
     </Card>
   );
 }
-
 
     

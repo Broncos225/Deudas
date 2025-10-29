@@ -1,3 +1,4 @@
+
 "use client";
 
 import {
@@ -96,20 +97,20 @@ export function DebtsChart({ debts }: DebtsChartProps) {
               labelStyle={{ color: "hsl(var(--foreground))" }}
               formatter={(value: number, name: string) => {
                 const formattedValue = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
-                return [formattedValue, name === 'iou' ? 'Tú debes' : 'Te deben'];
+                return [formattedValue, name === 'iou' ? 'Pagar' : 'Cobrar'];
               }}
             />
             <Bar
               dataKey="iou"
               stackId="a"
-              name="Tú debes"
+              name="Pagar"
               fill="hsl(var(--destructive))"
               radius={[4, 4, 0, 0]}
             />
             <Bar
               dataKey="uome"
               stackId="a"
-              name="Te deben"
+              name="Cobrar"
               fill="hsl(var(--accent))"
               radius={[4, 4, 0, 0]}
             />

@@ -2,7 +2,7 @@
 "use client";
 
 import Image from 'next/image';
-import { HandCoins, LogOut, PlusCircle, User as UserIcon, Bell, Users } from 'lucide-react';
+import { HandCoins, LogOut, PlusCircle, User as UserIcon, Users, Clipboard, ClipboardCheck } from 'lucide-react';
 import { ThemeToggle } from './theme-toggle';
 import { useAuth, useUser } from '@/firebase';
 import { Button } from './ui/button';
@@ -10,10 +10,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { signOut } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
-import { ReactNode, useState, useEffect } from 'react';
+import { ReactNode, useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { collection, addDoc } from 'firebase/firestore';
-import { useFirestore } from '@/firebase';
 import Link from 'next/link';
 
 interface DashboardHeaderProps {
@@ -24,16 +22,8 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
     const auth = useAuth();
     const { user } = useUser();
     const router = useRouter();
-    const firestore = useFirestore();
     const { toast } = useToast();
-    const [isSubscribing, setIsSubscribing] = useState(false);
-    const [isNotificationPermissionGranted, setIsNotificationPermissionGranted] = useState(false);
-
-    useEffect(() => {
-        if (typeof window !== 'undefined' && 'Notification' in window) {
-            setIsNotificationPermissionGranted(Notification.permission === 'granted');
-        }
-    }, []);
+    const [copied, setCopied] = useState(false);
 
     const handleSignOut = async () => {
         if(auth) {
@@ -54,42 +44,23 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
         return username.substring(0, 2).toUpperCase();
     }
 
-    const subscribeToPushNotifications = async () => {
-        if (!user || !firestore) return;
-        setIsSubscribing(true);
-
-        try {
-            if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-                throw new Error('Las notificaciones Push no son soportadas en este navegador.');
-            }
-
-            const registration = await navigator.serviceWorker.ready;
-            const subscription = await registration.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-            });
-            
-            console.log('Subscription object:', JSON.stringify(subscription));
-
-            const subscriptionsRef = collection(firestore, 'users', user.uid, 'subscriptions');
-            await addDoc(subscriptionsRef, JSON.parse(JSON.stringify(subscription)));
-
+    const handleCopyUserId = () => {
+        if (!user) return;
+        navigator.clipboard.writeText(user.uid).then(() => {
+            setCopied(true);
             toast({
-                title: '¡Suscripción exitosa!',
-                description: 'Recibirás notificaciones de tus deudas.',
+                title: '¡Copiado!',
+                description: 'Tu código de usuario ha sido copiado al portapapeles.',
             });
-            setIsNotificationPermissionGranted(true);
-        } catch (error) {
-            console.error('Error al suscribirse a las notificaciones:', error);
-            const description = error instanceof Error ? error.message : 'Asegúrate de permitir las notificaciones en tu navegador.';
+            setTimeout(() => setCopied(false), 2000);
+        }).catch(err => {
+            console.error('Error al copiar el ID de usuario: ', err);
             toast({
-                variant: 'destructive',
-                title: 'Error de suscripción',
-                description: description,
+                variant: "destructive",
+                title: "Error al Copiar",
+                description: "No se pudo copiar el código.",
             });
-        } finally {
-            setIsSubscribing(false);
-        }
+        });
     };
 
 
@@ -125,7 +96,7 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
                                 </Avatar>
                             </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent className="w-56" align="end" forceMount>
+                        <DropdownMenuContent className="w-64" align="end" forceMount>
                             <DropdownMenuLabel className="font-normal">
                                 <div className="flex flex-col space-y-1">
                                     <p className="text-sm font-medium leading-none">{getUsername(user.email)}</p>
@@ -135,14 +106,16 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
                                 </div>
                             </DropdownMenuLabel>
                             <DropdownMenuSeparator />
-                             <DropdownMenuItem 
-                                onClick={subscribeToPushNotifications} 
-                                disabled={isSubscribing || isNotificationPermissionGranted}
-                                className="gap-2 cursor-pointer"
-                            >
-                                <Bell className="h-4 w-4" />
-                                {isNotificationPermissionGranted ? 'Notificaciones activadas' : isSubscribing ? 'Activando...' : 'Activar Notificaciones'}
-                            </DropdownMenuItem>
+                             <div className="px-2 py-1.5">
+                                <span className="text-xs font-semibold text-muted-foreground">Tu Código de Usuario</span>
+                                <div className="flex items-center justify-between mt-1">
+                                    <code className="text-xs bg-muted text-muted-foreground rounded-sm px-2 py-1 truncate">{user.uid}</code>
+                                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopyUserId}>
+                                        {copied ? <ClipboardCheck className="h-4 w-4 text-green-500" /> : <Clipboard className="h-4 w-4" />}
+                                        <span className="sr-only">Copiar código de usuario</span>
+                                    </Button>
+                                </div>
+                            </div>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onClick={handleSignOut} className="gap-2 cursor-pointer">
                                 <LogOut className="h-4 w-4" />

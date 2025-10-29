@@ -1,105 +1,152 @@
 /**
- * @file Firestore Security Rules
- * @description This ruleset enforces a strict user-ownership model for all data. Each user has their own private data tree under `/users/{userId}`.
+ * @fileOverview Firestore Security Rules for the Debt Tracker application.
+ *
+ * Core Philosophy:
+ * This ruleset enforces a user-ownership model for private data under /users/{userId},
+ * and a shared access model for debts stored in the /debts_shared/{debtId} collection.
+ * All authorization decisions are based on the authenticated user's UID.
  *
  * Data Structure:
- * - /users/{userId}/debtors/{debtorId}: Stores debtor information, accessible only by the owning user.
- * - /users/{userId}/debts/{debtId}: Stores debt records, accessible only by the owning user.
- * - /users/{userId}/settlements/{settlementId}: Stores settlement history, accessible only by the owning user.
+ * - /users/{userId}/debtors/{debtorId}: Private debtors owned by a specific user.
+ * - /users/{userId}/debts/{debtId}: Private debt records owned by a specific user.
+ * - /debts_shared/{debtId}: Debt records shared between two users.
+ * - /users/{userId}/settlements/{settlementId}: Settlement records owned by a specific user.
  *
  * Key Security Decisions:
- * - User data is completely isolated; one user cannot access another user's data.
- * - Listing of user subcollections is allowed only for the owner.
+ * - Users can only access data under their own /users/{userId} path.
+ * - Shared debts in /debts_shared are accessible to both participants.
+ * - Data shape is not strictly enforced to allow for rapid prototyping.
+ * - List operations are allowed for owners of user-scoped collections.
+ *
+ * Denormalization for Authorization:
+ * - Shared debts contain a `participants` array to efficiently check user access.
+ *
+ * Structural Segregation:
+ * - Private debts are stored under /users/{userId}, while shared debts are stored in a top-level /debts_shared collection.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Checks if the request is made by the owner of the resource.
-     * @param {string} userId - The user ID to compare against the request's auth UID.
-     * @return {boolean} - True if the request is made by the owner, false otherwise.
+     * @description Checks if the user is signed in.
+     * @principle Verified Identity: Ensures the request is authenticated.
+     */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    /**
+     * @description Checks if the authenticated user ID matches the provided user ID.
+     * @principle Ownership: Confirms that the user owns the resource.
      */
     function isOwner(userId) {
-      return request.auth != null && request.auth.uid == userId;
+      return isSignedIn() && request.auth.uid == userId;
     }
 
     /**
-     * @description Checks if the request is made by the owner of the resource and the resource exists.
-     * @param {string} userId - The user ID to compare against the request's auth UID.
-     * @return {boolean} - True if the request is made by the owner and the resource exists, false otherwise.
+     * @description Checks if the authenticated user owns the resource and the resource exists.
+     * @principle Ownership: Combines ownership verification with existence check.
      */
     function isExistingOwner(userId) {
-        return isOwner(userId) && resource != null;
+      return isOwner(userId) && resource != null;
     }
 
     /**
-     * @description Rules for the /users/{userId}/debtors/{debtorId} collection.
+     * @description Checks if the authenticated user is a participant in the shared resource.
+     * @principle Shared Access (Closed Collaborators): Validates user membership in a shared document.
+     */
+    function isParticipant(participants) {
+        return isSignedIn() && participants.hasAny([request.auth.uid]);
+    }
+
+    /**
+     * @description Rules for managing private debtor information with mirror contact support.
      * @path /users/{userId}/debtors/{debtorId}
-     * @allow (create) User 'A' can create a debtor under their own user ID.
-     * @deny (create) User 'A' cannot create a debtor under User 'B's user ID.
-     * @allow (get) User 'A' can read a debtor under their own user ID.
-     * @deny (get) User 'A' cannot read a debtor under User 'B's user ID.
-     * @allow (list) User 'A' can list debtors under their own user ID.
-     * @deny (list) User 'A' cannot list debtors under User 'B's user ID.
-     * @allow (update) User 'A' can update a debtor under their own user ID.
-     * @deny (update) User 'A' cannot update a debtor under User 'B's user ID.
-     * @allow (delete) User 'A' can delete a debtor under their own user ID.
-     * @deny (delete) User 'A' cannot delete a debtor under User 'B's user ID.
-     * @principle Enforces document ownership for all operations.
+     * @allow (get) User A can get a debtor from their own list: auth.uid = "userA", path = "/users/userA/debtors/debtor1"
+     * @allow (list) User A can list debtors from their own list: auth.uid = "userA", path = "/users/userA/debtors"
+     * @allow (create) User A can create a debtor in their own list: auth.uid = "userA", path = "/users/userA/debtors/debtor1", data.userId = "userA"
+     * @allow (update) User A can update a debtor in their own list: auth.uid = "userA", path = "/users/userA/debtors/debtor1", data.userId = "userA"
+     * @allow (delete) User A can delete a debtor in their own list: auth.uid = "userA", path = "/users/userA/debtors/debtor1", data.userId = "userA"
+     * @deny (get) User B cannot get a debtor from User A's list: auth.uid = "userB", path = "/users/userA/debtors/debtor1"
+     * @deny (create) User A cannot create a debtor in User B's list: auth.uid = "userA", path = "/users/userB/debtors/debtor1", data.userId = "userA"
+     * @principle Restricts access to a user's own debtors.
      */
     match /users/{userId}/debtors/{debtorId} {
       allow get: if isOwner(userId);
       allow list: if isOwner(userId);
-      allow create: if isOwner(userId) && request.resource.data.userId == userId;
+      
+      // Allow create if:
+      // Case 1: Creating in your own list
+      // Case 2: Creating a mirror contact in another user's list that references you
+      allow create: if isSignedIn() && 
+        request.resource.data.userId == userId && (
+          request.auth.uid == userId ||
+          (request.resource.data.isAppUser == true && 
+           request.resource.data.appUserId == request.auth.uid)
+        );
+      
       allow update: if isExistingOwner(userId) && resource.data.userId == userId;
-      allow delete: if isExistingOwner(userId);
+      allow delete: if isExistingOwner(userId) && resource.data.userId == userId;
     }
 
     /**
-     * @description Rules for the /users/{userId}/debts/{debtId} collection.
+     * @description Rules for managing private debt records.
      * @path /users/{userId}/debts/{debtId}
-     * @allow (create) User 'A' can create a debt under their own user ID.
-     * @deny (create) User 'A' cannot create a debt under User 'B's user ID.
-     * @allow (get) User 'A' can read a debt under their own user ID.
-     * @deny (get) User 'A' cannot read a debt under User 'B's user ID.
-     * @allow (list) User 'A' can list debts under their own user ID.
-     * @deny (list) User 'A' cannot list debts under User 'B's user ID.
-     * @allow (update) User 'A' can update a debt under their own user ID.
-     * @deny (update) User 'A' cannot update a debt under User 'B's user ID.
-     * @allow (delete) User 'A' can delete a debt under their own user ID.
-     * @deny (delete) User 'A' cannot delete a debt under User 'B's user ID.
-     * @principle Enforces document ownership for all operations.
+     * @allow (get) User A can get a debt from their own list: auth.uid = "userA", path = "/users/userA/debts/debt1"
+     * @allow (list) User A can list debts from their own list: auth.uid = "userA", path = "/users/userA/debts"
+     * @allow (create) User A can create a debt in their own list: auth.uid = "userA", path = "/users/userA/debts/debt1", data.userId = "userA"
+     * @allow (update) User A can update a debt in their own list: auth.uid = "userA", path = "/users/userA/debts/debt1", data.userId = "userA"
+     * @allow (delete) User A can delete a debt in their own list: auth.uid = "userA", path = "/users/userA/debts/debt1", data.userId = "userA"
+     * @deny (get) User B cannot get a debt from User A's list: auth.uid = "userB", path = "/users/userA/debts/debt1"
+     * @deny (create) User A cannot create a debt in User B's list: auth.uid = "userA", path = "/users/userB/debts/debt1", data.userId = "userA"
+     * @principle Restricts access to a user's own debt records.
      */
     match /users/{userId}/debts/{debtId} {
       allow get: if isOwner(userId);
       allow list: if isOwner(userId);
       allow create: if isOwner(userId) && request.resource.data.userId == userId;
       allow update: if isExistingOwner(userId) && resource.data.userId == userId;
-      allow delete: if isExistingOwner(userId);
+      allow delete: if isExistingOwner(userId) && resource.data.userId == userId;
     }
 
     /**
-     * @description Rules for the /users/{userId}/settlements/{settlementId} collection.
+     * @description Rules for managing debts shared between two users.
+     * @path /debts_shared/{debtId}
+     * @allow (get) User A can get a shared debt if they are a participant: auth.uid = "userA", path = "/debts_shared/debt1", data.participants = ["userA", "userB"]
+     * @allow (list) User A can list shared debts if they are signed in: auth.uid = "userA", path = "/debts_shared"
+     * @allow (create) User A can create a shared debt if they are a participant: auth.uid = "userA", path = "/debts_shared/debt1", data.participants = ["userA", "userB"]
+     * @allow (update) User A can update a shared debt if they are a participant and the userId matches: auth.uid = "userA", path = "/debts_shared/debt1", data.participants = ["userA", "userB"], data.userId = "userA"
+     * @allow (delete) User A can delete a shared debt if they are a participant and the userId matches: auth.uid = "userA", path = "/debts_shared/debt1", data.participants = ["userA", "userB"], data.userId = "userA"
+     * @deny (get) User C cannot get a shared debt between User A and User B: auth.uid = "userC", path = "/debts_shared/debt1", data.participants = ["userA", "userB"]
+     * @principle Allows access to shared debts for participants only.
+     */
+    match /debts_shared/{debtId} {
+      allow get: if isSignedIn() && isParticipant(resource.data.participants);
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isParticipant(request.resource.data.participants);
+      allow update: if isSignedIn() && isExistingOwner(resource.data.userId) && isParticipant(resource.data.participants);
+      allow delete: if isSignedIn() && isExistingOwner(resource.data.userId) && isParticipant(resource.data.participants);
+    }
+
+    /**
+     * @description Rules for managing settlement records.
      * @path /users/{userId}/settlements/{settlementId}
-     * @allow (create) User 'A' can create a settlement under their own user ID.
-     * @deny (create) User 'A' cannot create a settlement under User 'B's user ID.
-     * @allow (get) User 'A' can read a settlement under their own user ID.
-     * @deny (get) User 'A' cannot read a settlement under User 'B's user ID.
-     * @allow (list) User 'A' can list settlements under their own user ID.
-     * @deny (list) User 'A' cannot list settlements under User 'B's user ID.
-     * @allow (update) User 'A' can update a settlement under their own user ID.
-     * @deny (update) User 'A' cannot update a settlement under User 'B's user ID.
-     * @allow (delete) User 'A' can delete a settlement under their own user ID.
-     * @deny (delete) User 'A' cannot delete a settlement under User 'B's user ID.
-     * @principle Enforces document ownership for all operations.
+     * @allow (get) User A can get a settlement from their own list: auth.uid = "userA", path = "/users/userA/settlements/settlement1"
+     * @allow (list) User A can list settlements from their own list: auth.uid = "userA", path = "/users/userA/settlements"
+     * @allow (create) User A can create a settlement in their own list: auth.uid = "userA", path = "/users/userA/settlements/settlement1", data.userId = "userA"
+     * @allow (update) User A can update a settlement in their own list: auth.uid = "userA", path = "/users/userA/settlements/settlement1", data.userId = "userA"
+     * @allow (delete) User A can delete a settlement in their own list: auth.uid = "userA", path = "/users/userA/settlements/settlement1", data.userId = "userA"
+     * @deny (get) User B cannot get a settlement from User A's list: auth.uid = "userB", path = "/users/userA/settlements/settlement1"
+     * @deny (create) User A cannot create a settlement in User B's list: auth.uid = "userA", path = "/users/userB/settlements/settlement1", data.userId = "userA"
+     * @principle Restricts access to a user's own settlement records.
      */
     match /users/{userId}/settlements/{settlementId} {
       allow get: if isOwner(userId);
       allow list: if isOwner(userId);
       allow create: if isOwner(userId) && request.resource.data.userId == userId;
       allow update: if isExistingOwner(userId) && resource.data.userId == userId;
-      allow delete: if isExistingOwner(userId);
+      allow delete: if isExistingOwner(userId) && resource.data.userId == userId;
     }
   }
 }

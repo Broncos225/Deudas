@@ -1,3 +1,4 @@
+
 {
   "entities": {
     "Debt": {
@@ -36,10 +37,22 @@
           "description": "The date when the debt was created.",
           "format": "date-time"
         },
+        "dueDate": {
+            "type": "string",
+            "description": "The optional due date for the debt.",
+            "format": "date-time"
+        },
         "receiptUrl": {
           "type": "string",
           "description": "URL of the receipt image.",
           "format": "uri"
+        },
+        "items": {
+            "type": "array",
+            "description": "An optional list of items detailing the composition of the debt.",
+            "items": {
+                "$ref": "#/entities/Item"
+            }
         },
         "payments": {
             "type": "array",
@@ -49,7 +62,26 @@
         },
         "userId": {
             "type": "string",
-            "description": "The ID of the user who owns this debt."
+            "description": "The ID of the user who owns this debt (for private debts or to identify the creator of a shared debt)."
+        },
+        "userOneId": {
+            "type": "string",
+            "description": "The UID of the first user in a shared debt, sorted lexicographically."
+        },
+        "userTwoId": {
+            "type": "string",
+            "description": "The UID of the second user in a shared debt, sorted lexicographically."
+        },
+        "participants": {
+            "type": "array",
+            "description": "An array containing the UIDs of both users involved in a shared debt, for efficient querying.",
+            "items": {
+                "type": "string"
+            }
+        },
+        "isShared": {
+            "type": "boolean",
+            "description": "Flag to identify if the debt is shared between two users."
         },
         "isSettled": {
             "type": "boolean",
@@ -67,9 +99,28 @@
         "amount",
         "currency",
         "type",
-        "createdAt",
-        "userId"
+        "createdAt"
       ]
+    },
+    "Item": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "Item",
+        "type": "object",
+        "description": "Represents a single item within a debt, such as a product or a specific concept with its own value.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The name of the product or concept."
+          },
+          "value": {
+            "type": "number",
+            "description": "The cost of this specific item."
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ]
     },
     "Payment": {
       "$schema": "http://json-schema.org/draft-07/schema#",
@@ -132,6 +183,23 @@
         "userId": {
           "type": "string",
           "description": "The ID of the user who owns this debtor."
+        },
+        "paymentMethod": {
+            "type": "string",
+            "description": "The preferred payment method for the debtor.",
+            "enum": ["Efectivo", "Transferencia", "Tarjeta", "Otro"]
+        },
+        "paymentInfo": {
+            "type": "string",
+            "description": "Details for the payment method, like an account number."
+        },
+        "isAppUser": {
+            "type": "boolean",
+            "description": "Whether the contact is linked to an app user account."
+        },
+        "appUserId": {
+            "type": "string",
+            "description": "The Firebase UID of the linked app user."
         }
       },
       "required": [
@@ -205,7 +273,14 @@
         "schema": {
           "$ref": "#/entities/Debt"
         },
-        "description": "Stores the individual debt records."
+        "description": "Stores the individual private debt records for a user."
+      },
+      {
+        "path": "/debts_shared/{debtId}",
+        "schema": {
+          "$ref": "#/entities/Debt"
+        },
+        "description": "Stores debt records shared between two users."
       },
       {
         "path": "/users/{userId}/settlements/{settlementId}",
@@ -217,3 +292,5 @@
     ]
   }
 }
+
+    
