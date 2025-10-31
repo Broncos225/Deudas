@@ -25,6 +25,7 @@ service cloud.firestore {
 
     /**
      * @description Grants the user full ownership over their debtor documents.
+     * Allows creating mirror contacts when linking app users.
      * @path /users/{userId}/debtors/{debtorId}
      * @allow (create) User 'user_abc' can create a new debtor with `userId: "user_abc"`.
      * @allow (get, list, update, delete) User 'user_abc' can access and modify debtor 'debtor_123' they own.
@@ -35,7 +36,17 @@ service cloud.firestore {
     match /users/{userId}/debtors/{debtorId} {
       allow get: if isOwner(userId);
       allow list: if isOwner(userId);
+      // Original rule: allow creating own contacts
       allow create: if isOwner(userId) && request.resource.data.userId == userId;
+      // New rule: Allow creating mirror contacts. A user can create a contact in another account IF:
+      // 1. The contact has isAppUser = true
+      // 2. The contact's appUserId is the authenticated user
+      // 3. The contact's userId is the owner of the collection
+      allow create: if isSignedIn() &&
+                       request.resource.data.keys().hasAll(['isAppUser', 'appUserId', 'userId']) &&
+                       request.resource.data.isAppUser == true &&
+                       request.resource.data.appUserId == request.auth.uid &&
+                       request.resource.data.userId == userId;
       allow update: if isExistingOwner(userId) && request.resource.data.userId == resource.data.userId;
       allow delete: if isExistingOwner(userId);
     }

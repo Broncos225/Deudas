@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -19,6 +18,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -56,8 +56,8 @@ const debtorFormSchema = z.object({
 type DebtorFormValues = z.infer<typeof debtorFormSchema>;
 
 interface AddDebtorDialogProps {
-  onAddDebtor?: (newDebtor: Omit<Debtor, 'id' | 'userId'>) => void;
-  onEditDebtor?: (debtorId: string, updatedDebtor: Omit<Debtor, 'id' | 'userId'>, originalDebtor: Debtor) => void;
+  onAddDebtor: (newDebtor: Omit<Debtor, 'id' | 'userId'>) => void;
+  onEditDebtor: (debtorId: string, updatedDebtor: Omit<Debtor, 'id' | 'userId'>, originalDebtor: Debtor) => void;
   debtorToEdit?: Debtor;
   children?: React.ReactNode;
 }
@@ -116,25 +116,23 @@ export function AddDebtorDialog({ onAddDebtor, onEditDebtor, debtorToEdit, child
     console.log('debtorToEdit:', debtorToEdit);
     console.log('data:', data);
     
-    if (isEditMode && debtorToEdit && onEditDebtor) {
+    // Limpiar appUserId si isAppUser es false
+    const cleanData = {
+      ...data,
+      appUserId: data.isAppUser ? data.appUserId : undefined,
+    };
+
+    if (isEditMode && debtorToEdit) {
         console.log('✅ Calling onEditDebtor with:');
         console.log('  - debtorId:', debtorToEdit.id);
-        console.log('  - updatedData:', data);
+        console.log('  - updatedData:', cleanData);
         console.log('  - originalDebtor:', debtorToEdit);
         
-        onEditDebtor(debtorToEdit.id, data, debtorToEdit);
+        onEditDebtor(debtorToEdit.id, cleanData, debtorToEdit);
         
-        toast({
-            title: "Contacto Actualizado",
-            description: `La información de ${data.name} ha sido actualizada.`,
-        });
-    } else if (onAddDebtor) {
+    } else {
         console.log('➕ Calling onAddDebtor');
-        onAddDebtor(data);
-        toast({
-          title: "Contacto Agregado",
-          description: `${data.name} ha sido añadido a tu lista.`,
-        });
+        onAddDebtor(cleanData);
     }
     setOpen(false);
   }
@@ -146,24 +144,13 @@ export function AddDebtorDialog({ onAddDebtor, onEditDebtor, debtorToEdit, child
         title: "¡Código Escaneado!",
         description: "El código de usuario ha sido rellenado.",
     })
+    return;
   };
-
-
-  const trigger = children ? (
-    <DialogTrigger asChild>{children}</DialogTrigger>
-  ) : (
-    <DialogTrigger asChild>
-      <Button size="sm" className="gap-1 bg-accent hover:bg-accent/90 text-accent-foreground text-xs md:text-sm">
-        <PlusCircle className="h-4 w-4" />
-        Agregar Contacto
-      </Button>
-    </DialogTrigger>
-  );
 
   return (
     <>
     <Dialog open={open} onOpenChange={setOpen}>
-      {trigger}
+      {children && <DialogTrigger asChild>{children}</DialogTrigger>}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{isEditMode ? "Editar Contacto" : "Agregar Nuevo Contacto"}</DialogTitle>
@@ -288,9 +275,9 @@ export function AddDebtorDialog({ onAddDebtor, onEditDebtor, debtorToEdit, child
                     <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
                         <div className="space-y-0.5">
                             <FormLabel>¿Es un usuario de la app?</FormLabel>
-                            <DialogDescription className="text-xs">
+                            <FormDescription className="text-xs">
                                 Activa esto para compartir deudas.
-                            </DialogDescription>
+                            </FormDescription>
                         </div>
                         <FormControl>
                             <Switch
@@ -317,6 +304,9 @@ export function AddDebtorDialog({ onAddDebtor, onEditDebtor, debtorToEdit, child
                                 <span className="sr-only">Escanear código QR</span>
                             </Button>
                         </div>
+                        <FormDescription>
+                          Pide a tu contacto que comparta su código desde su perfil.
+                        </FormDescription>
                         <FormMessage />
                         </FormItem>
                     )}
@@ -343,5 +333,3 @@ export function AddDebtorDialog({ onAddDebtor, onEditDebtor, debtorToEdit, child
     </>
   );
 }
-
-    

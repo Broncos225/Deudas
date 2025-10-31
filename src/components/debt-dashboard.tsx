@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Debt, Payment, Debtor, Settlement, ActivityLog } from '@/lib/types';
 import DashboardHeader from '@/components/dashboard-header';
@@ -28,6 +28,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { ActivityFeed } from './activity-feed';
 import { ViewDebtDialog } from './view-debt-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { useAppData } from '@/contexts/app-data-context';
 
 
 export default function DebtDashboard() {
@@ -44,6 +45,7 @@ export default function DebtDashboard() {
     debtorId: 'all',
   });
   const [debtToView, setDebtToView] = useState<Debt | null>(null);
+  const { setDebtors: setGlobalDebtors } = useAppData();
 
 
   useEffect(() => {
@@ -117,11 +119,12 @@ export default function DebtDashboard() {
 
       const results = await Promise.all(debtorPromises);
       setEnrichedDebtors(results);
+      setGlobalDebtors(results);
       setIsEnriching(false);
     };
 
     enrichDebtors();
-  }, [rawDebtors, firestore]);
+  }, [rawDebtors, firestore, setGlobalDebtors]);
 
   const debtors = enrichedDebtors;
 
@@ -221,7 +224,7 @@ const debts = useMemo(() => {
 }, [privateDebts, sharedDebtsData, debtors, user]);
 
 
-  const handleAddDebt = (newDebt: Omit<Debt, 'id' | 'payments' | 'debtorName'>) => {
+const handleAddDebt = useCallback((newDebt: Omit<Debt, 'id' | 'payments' | 'debtorName'>) => {
     if (!firestore || !user || !debtors) return;
     const debtor = debtors.find(d => d.id === newDebt.debtorId);
     if (!debtor) return;
@@ -265,7 +268,7 @@ const debts = useMemo(() => {
             );
         }
     });
-};
+  }, [firestore, user, debtors, getUsername]);
   
   const handleEditDebt = (debtId: string, updatedDebt: Partial<Omit<Debt, 'id'>>, debtorName: string) => {
     if (!firestore || !user || !debts) return;
@@ -629,83 +632,211 @@ const debts = useMemo(() => {
     }
   };
 
-  const handleAddDebtor = (newDebtorData: Omit<Debtor, 'id' | 'userId'>) => {
-    if (!debtorsRef || !user) return;
-    const debtorToAdd: Omit<Debtor, 'id'> = {
-      ...newDebtorData,
-      userId: user.uid,
-    };
-    
-    const cleanDebtorData = Object.fromEntries(
-      Object.entries(debtorToAdd).filter(([_, value]) => value !== undefined && value !== '')
-    );
-
-    addDocumentNonBlocking(debtorsRef, cleanDebtorData);
-  };
-
-  const handleEditDebtorAndCreateMirror = async (
-    debtorId: string, 
-    updatedData: Omit<Debtor, 'id' | 'userId'>, 
-    originalDebtor: Debtor
-  ) => {
-    if (!firestore || !user) {
-        return;
+  const handleAddDebtor = async (newDebtorData: Omit<Debtor, 'id' | 'userId'>) => {
+    if (!debtorsRef || !user || !firestore) return;
+  
+    const linkedUserId = newDebtorData.appUserId;
+  
+    if (linkedUserId && linkedUserId === user.uid) {
+      toast({
+        variant: 'destructive',
+        title: 'Error de Vinculación',
+        description: 'No puedes vincularte a ti mismo como contacto.',
+      });
+      return;
     }
-
-    const debtorDocRef = doc(firestore, 'users', user.uid, 'debtors', debtorId);
-    
-    const cleanUpdatedData = Object.fromEntries(
-        Object.entries(updatedData).filter(([_, value]) => value !== undefined && value !== '')
-    );
-
-    updateDocumentNonBlocking(debtorDocRef, cleanUpdatedData);
-
-    const wasJustLinked = updatedData.isAppUser && updatedData.appUserId;
-    const uidIsNew = updatedData.appUserId !== originalDebtor.appUserId;
-
-    if (wasJustLinked && uidIsNew) {
-        const linkedUserId = updatedData.appUserId as string;
-        if (linkedUserId === user.uid) {
-            toast({
-                variant: 'destructive',
-                title: 'Error',
-                description: 'No puedes vincularte a ti mismo.',
-            });
-            return;
-        }
-
+  
+    if (linkedUserId && debtors) {
+      const isAlreadyLinked = debtors.some(
+        (d) => d.isAppUser && d.appUserId === linkedUserId
+      );
+      if (isAlreadyLinked) {
+        toast({
+          variant: 'destructive',
+          title: 'Error de Vinculación',
+          description: 'Este usuario ya está vinculado a otro de tus contactos.',
+        });
+        return;
+      }
+    }
+  
+    const debtorToAdd: Omit<Debtor, 'id'> = {
+      name: newDebtorData.name,
+      type: newDebtorData.type || 'person',
+      userId: user.uid,
+      isAppUser: newDebtorData.isAppUser || false,
+      ...(newDebtorData.contact && { contact: newDebtorData.contact }),
+      ...(newDebtorData.paymentMethod && { paymentMethod: newDebtorData.paymentMethod }),
+      ...(newDebtorData.paymentInfo && { paymentInfo: newDebtorData.paymentInfo }),
+      ...(newDebtorData.appUserId && { appUserId: newDebtorData.appUserId }),
+    };
+  
+    const isLinkingToAppUser = newDebtorData.isAppUser && linkedUserId;
+  
+    if (isLinkingToAppUser) {
+      try {
         const mirrorContactData = {
-            name: user.displayName || user.email?.split('@')[0] || `Usuario ${user.uid.substring(0, 5)}`,
-            type: "person" as const,
-            isAppUser: true,
-            appUserId: user.uid,
-            userId: linkedUserId,
-            paymentMethod: "Otro" as const,
-            paymentInfo: "Usuario de la App"
+          name: getUsername(user.email),
+          type: "person",
+          isAppUser: true,
+          appUserId: user.uid,
+          userId: linkedUserId,
+          paymentMethod: "Otro",
+          paymentInfo: "Usuario de la App"
         };
         
-        try {
-            const mirrorDebtorsColRef = collection(firestore, `users/${linkedUserId}/debtors`);
-            const docRef = await addDoc(mirrorDebtorsColRef, mirrorContactData);
-            
-            toast({
-                title: "¡Contacto Vinculado!",
-                description: `Se ha creado un contacto espejo exitosamente.`,
-            });
-
-            await handleSyncDebts(debtorId);
-
-        } catch (e: any) {
-            console.error('❌ ERROR creating mirror contact:', e);
-            toast({
-                variant: 'destructive',
-                title: 'Error al vincular',
-                description: e.code === 'permission-denied' 
-                    ? 'No tienes permisos para crear este contacto. Verifica las reglas de Firestore.'
-                    : `Error: ${e.message}`,
-            });
+        const mirrorDebtorsColRef = collection(firestore, `users/${linkedUserId}/debtors`);
+        const mirrorDocRef = await addDocumentNonBlocking(mirrorDebtorsColRef, mirrorContactData);
+        
+        if (!mirrorDocRef) {
+          throw new Error('No se pudo crear el contacto espejo.');
         }
+  
+        await addDocumentNonBlocking(debtorsRef, debtorToAdd);
+        
+        toast({
+          title: "¡Contacto Vinculado Creado!",
+          description: `${newDebtorData.name} ha sido agregado y vinculado exitosamente.`,
+        });
+  
+      } catch (e: any) {
+        console.error('❌ ERROR creando el contacto vinculado:', e);
+        toast({
+          variant: 'destructive',
+          title: 'Error al Crear Contacto Vinculado',
+          description: e.code === 'permission-denied' 
+            ? 'El usuario no existe o no se pudo crear el contacto. Verifica que el código de usuario sea correcto.'
+            : `No se pudo completar la vinculación: ${e.message}`,
+        });
+      }
+    } else {
+      await addDocumentNonBlocking(debtorsRef, debtorToAdd);
+      toast({
+        title: "Contacto Agregado",
+        description: `${newDebtorData.name} ha sido agregado exitosamente.`,
+      });
     }
+  };
+
+
+const handleEditDebtorAndCreateMirror = async (
+  debtorId: string, 
+  updatedData: Omit<Debtor, 'id' | 'userId'>, 
+  originalDebtor: Debtor
+) => {
+  if (!firestore || !user || !debtors) {
+      return;
+  }
+
+  const linkedUserId = updatedData.appUserId;
+
+  // Prevent self-linking
+  if (linkedUserId && linkedUserId === user.uid) {
+      toast({
+          variant: 'destructive',
+          title: 'Error de Vinculación',
+          description: 'No puedes vincularte a ti mismo como contacto.',
+      });
+      return;
+  }
+
+  // Prevent linking to an already linked user
+  if (linkedUserId) {
+      const isAlreadyLinked = debtors.some(
+          (d) => d.id !== debtorId && d.appUserId === linkedUserId
+      );
+      if (isAlreadyLinked) {
+          toast({
+              variant: 'destructive',
+              title: 'Error de Vinculación',
+              description: 'Este usuario ya está vinculado a otro de tus contactos.',
+          });
+          return;
+      }
+  }
+  
+  const debtorDocRef = doc(firestore, 'users', user.uid, 'debtors', debtorId);
+  
+  const cleanUpdatedData = Object.fromEntries(
+      Object.entries(updatedData).filter(([_, value]) => value !== undefined && value !== '')
+  );
+
+  const wasJustLinked = updatedData.isAppUser && updatedData.appUserId;
+  const uidIsNew = updatedData.appUserId !== originalDebtor.appUserId;
+
+  if (wasJustLinked && uidIsNew && linkedUserId) {
+      try {
+          // ✅ NO verificar usuario, ir directo a crear el espejo
+          console.log('✅ Attempting to create mirror contact...');
+
+          // Crear el contacto espejo
+          const mirrorContactData = {
+              name: getUsername(user.email),
+              type: "person",
+              isAppUser: true,
+              appUserId: user.uid,
+              userId: linkedUserId,
+              paymentMethod: "Otro",
+              paymentInfo: "Usuario de la App"
+          };
+          
+          console.log('📝 Mirror contact data:', mirrorContactData);
+          
+          const mirrorDebtorsColRef = collection(firestore, `users/${linkedUserId}/debtors`);
+          
+          // Intentar crear el contacto espejo directamente
+          console.log('⏳ Creating mirror contact...');
+          const mirrorDocRef = await addDocumentNonBlocking(mirrorDebtorsColRef, mirrorContactData);
+          
+          if (!mirrorDocRef) {
+              throw new Error('No se pudo crear el contacto espejo');
+          }
+
+          console.log('✅ Contacto espejo creado exitosamente:', mirrorDocRef.id);
+
+          // Actualizar el contacto local
+          await updateDocumentNonBlocking(debtorDocRef, cleanUpdatedData);
+          
+          toast({
+              title: "¡Contacto Vinculado!",
+              description: `Ahora estás conectado con ${updatedData.name}. ${privateDebts?.filter(d => d.debtorId === debtorId && !d.isShared).length > 0 ? 'Las deudas existentes se sincronizarán automáticamente.' : ''}`,
+          });
+
+          // ✅ Sincronizar deudas solo si hay deudas privadas que sincronizar
+          if (privateDebts?.filter(d => d.debtorId === debtorId && !d.isShared).length > 0) {
+              // Esperar un momento para que el estado se actualice
+              setTimeout(async () => {
+                  try {
+                      await handleSyncDebts(debtorId);
+                  } catch (e) {
+                      console.error('Error syncing debts:', e);
+                      // No mostrar error al usuario ya que la vinculación fue exitosa
+                  }
+              }, 1000);
+          }
+
+      } catch (e: any) {
+          console.error('❌ ERROR creando el contacto espejo:', e);
+          console.error('Error code:', e.code);
+          console.error('Error message:', e.message);
+          
+          toast({
+              variant: 'destructive',
+              title: 'Error al Vincular',
+              description: e.code === 'permission-denied' 
+                  ? 'El usuario no existe o no se pudo crear el contacto. Verifica que el código de usuario sea correcto.'
+                  : `No se pudo completar la vinculación: ${e.message}`,
+          });
+      }
+  } else {
+      // Solo actualizar sin crear espejo
+      await updateDocumentNonBlocking(debtorDocRef, cleanUpdatedData);
+      
+      toast({
+          title: "Contacto Actualizado",
+          description: `La información de ${updatedData.name} ha sido guardada.`,
+      });
+  }
 };
 
   const handleSyncDebts = async (debtorId: string) => {
@@ -921,17 +1052,11 @@ const debts = useMemo(() => {
         </div>
         <Tabs defaultValue="overview" className="w-full" value={activeTab} onValueChange={setActiveTab}>
             <div className="flex items-center justify-between flex-wrap gap-2">
-                {/* Desktop Tabs */}
-                <TabsList className="hidden md:inline-flex">
-                    {TABS_CONFIG.map(tab => (
-                       <TabsTrigger key={tab.value} value={tab.value}>{tab.label}</TabsTrigger>
-                    ))}
-                </TabsList>
                 {/* Mobile Select */}
                 <div className="md:hidden w-full">
                     <Select value={activeTab} onValueChange={setActiveTab}>
                         <SelectTrigger>
-                            <SelectValue placeholder="Seleccionar vista..." />
+                            <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                             {TABS_CONFIG.map(tab => (
@@ -940,6 +1065,12 @@ const debts = useMemo(() => {
                         </SelectContent>
                     </Select>
                 </div>
+                {/* Desktop Tabs */}
+                <TabsList className="hidden md:inline-flex">
+                    {TABS_CONFIG.map(tab => (
+                       <TabsTrigger key={tab.value} value={tab.value}>{tab.label}</TabsTrigger>
+                    ))}
+                </TabsList>
                 {(activeTab === 'all-debts' || activeTab === 'history') && (
                     <div className="flex items-center gap-2">
                         <DropdownMenu>
@@ -1037,5 +1168,3 @@ const debts = useMemo(() => {
     </div>
   );
 }
-
-

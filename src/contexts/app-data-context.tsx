@@ -1,7 +1,8 @@
 
 "use client";
 
-import React, { createContext, useContext, useState, ReactNode, useCallback } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useCallback, useMemo } from 'react';
+import type { Debtor, Debt } from '@/lib/types';
 
 type Currency = 'COP' | 'USD' | 'EUR';
 
@@ -9,12 +10,23 @@ interface AppDataContextType {
   currency: Currency;
   setCurrency: (currency: Currency) => void;
   formatUserCurrency: (amount: number, currencyCode?: Currency) => string;
+  debtors: Debtor[];
+  setDebtors: (debtors: Debtor[]) => void;
 }
 
 const AppDataContext = createContext<AppDataContextType | undefined>(undefined);
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
-  const [currency, setCurrency] = useState<Currency>('COP');
+  const [currency, setCurrencyState] = useState<Currency>('COP');
+  const [debtors, setDebtorsState] = useState<Debtor[]>([]);
+
+  const setCurrency = useCallback((newCurrency: Currency) => {
+    setCurrencyState(newCurrency);
+  }, []);
+
+  const setDebtors = useCallback((newDebtors: Debtor[]) => {
+    setDebtorsState(newDebtors);
+  }, []);
 
   const formatUserCurrency = useCallback((amount: number, currencyCode?: Currency) => {
     const code = currencyCode || currency;
@@ -26,11 +38,13 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     }).format(amount);
   }, [currency]);
 
-  const value = {
+  const value = useMemo(() => ({
     currency,
     setCurrency,
     formatUserCurrency,
-  };
+    debtors,
+    setDebtors,
+  }), [currency, setCurrency, formatUserCurrency, debtors, setDebtors]);
 
   return (
     <AppDataContext.Provider value={value}>

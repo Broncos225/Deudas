@@ -8,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { User, Mail, Phone, MoreHorizontal, Edit, Trash2, Building, Loader, CreditCard, Link as LinkIcon, Banknote, History } from "lucide-react";
+import { User, Mail, Phone, MoreHorizontal, Edit, Trash2, Building, Loader, CreditCard, Link as LinkIcon, Banknote, History, PlusCircle } from "lucide-react";
 import { AddDebtorDialog } from "./add-debtor-dialog";
 import {
   DropdownMenu,
@@ -140,7 +140,7 @@ export function DebtorDetails({ debtors, onAddDebtor, onEditDebtor, onDeleteDebt
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                         <DropdownMenuLabel>Acciones</DropdownMenuLabel>
-                        <AddDebtorDialog debtorToEdit={debtor} onEditDebtor={onEditDebtor}>
+                        <AddDebtorDialog debtorToEdit={debtor} onEditDebtor={onEditDebtor} onAddDebtor={onAddDebtor}>
                             <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="gap-2">
                                 <Edit className="h-4 w-4" /> Editar
                             </DropdownMenuItem>
@@ -177,7 +177,12 @@ export function DebtorDetails({ debtors, onAddDebtor, onEditDebtor, onDeleteDebt
                 Tu lista de personas y entidades.
             </CardDescription>
         </div>
-        <AddDebtorDialog onAddDebtor={onAddDebtor} />
+        <AddDebtorDialog onAddDebtor={onAddDebtor} onEditDebtor={onEditDebtor}>
+          <Button size="sm" className="gap-1 bg-accent hover:bg-accent/90 text-accent-foreground text-xs md:text-sm">
+            <PlusCircle className="h-4 w-4" />
+            Agregar Contacto
+          </Button>
+        </AddDebtorDialog>
       </CardHeader>
       <CardContent>
         <div className="grid gap-4">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -19,42 +19,65 @@ interface QrScannerDialogProps {
 const QR_SCANNER_CONTAINER_ID = "html5-qr-scanner";
 
 export function QrScannerDialog({ open, onOpenChange, onScanSuccess }: QrScannerDialogProps) {
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const isInitializedRef = useRef(false);
 
   useEffect(() => {
-    if (open) {
-      const scanner = new Html5QrcodeScanner(
-        QR_SCANNER_CONTAINER_ID,
-        { 
-          qrbox: {
-            width: 250,
-            height: 250,
+    if (open && !isInitializedRef.current) {
+      const container = document.getElementById(QR_SCANNER_CONTAINER_ID);
+      if (!container) return;
+
+      // Clear any previous scanner instances
+      container.innerHTML = '';
+      isInitializedRef.current = true;
+      
+      const timeoutId = setTimeout(() => {
+        const scanner = new Html5QrcodeScanner(
+          QR_SCANNER_CONTAINER_ID,
+          { 
+            qrbox: {
+              width: 250,
+              height: 250,
+            },
+            fps: 10,
           },
-          fps: 10,
-        },
-        /* verbose= */ false
-      );
-
-      const handleSuccess = (decodedText: string) => {
-        scanner.clear();
-        onScanSuccess(decodedText);
-      };
-
-      const handleError = (errorMessage: string) => {
-        // console.error(`QR Scanner Error: ${errorMessage}`);
-      };
-
-      scanner.render(handleSuccess, handleError);
+          /* verbose= */ false
+        );
+        scannerRef.current = scanner;
+  
+        const handleSuccess = (decodedText: string) => {
+          if (scannerRef.current) {
+            scannerRef.current.clear();
+            scannerRef.current = null;
+          }
+          onScanSuccess(decodedText);
+        };
+  
+        const handleError = (errorMessage: string) => {
+          // console.error(`QR Scanner Error: ${errorMessage}`);
+        };
+  
+        scanner.render(handleSuccess, handleError);
+      }, 100);
 
       return () => {
-        // Cleanup function to stop the scanner when the dialog is closed or component unmounts
-        if (scanner) {
-          scanner.clear().catch(error => {
-            console.error("Failed to clear html5-qrcode scanner.", error);
-          });
-        }
-      };
+        clearTimeout(timeoutId);
+      }
     }
   }, [open, onScanSuccess]);
+
+  // Cleanup effect when the dialog is closed
+  useEffect(() => {
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(error => {
+          console.error("Failed to clear html5-qrcode scanner on unmount.", error);
+        });
+        scannerRef.current = null;
+      }
+      isInitializedRef.current = false;
+    };
+  }, []);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -65,7 +88,7 @@ export function QrScannerDialog({ open, onOpenChange, onScanSuccess }: QrScanner
             Apunta la cámara al código QR de la otra persona.
           </DialogDescription>
         </DialogHeader>
-        <div id={QR_SCANNER_CONTAINER_ID} className="w-full" />
+        <div id={QR_SCANNER_CONTAINER_ID} className="w-full min-h-[300px]" />
       </DialogContent>
     </Dialog>
   );
