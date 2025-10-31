@@ -1,3 +1,4 @@
+
 "use client";
 
 import {
@@ -16,18 +17,22 @@ import { useToast } from "@/hooks/use-toast";
 interface DeleteDebtAlertDialogProps {
   onDelete: () => void;
   children: React.ReactNode;
+  isShared: boolean;
 }
 
-export function DeleteDebtAlertDialog({ onDelete, children }: DeleteDebtAlertDialogProps) {
+export function DeleteDebtAlertDialog({ onDelete, children, isShared }: DeleteDebtAlertDialogProps) {
   const { toast } = useToast();
 
   const handleDelete = () => {
     onDelete();
-    toast({
-      title: "Deuda Eliminada",
-      description: "El registro de la deuda ha sido eliminado permanentemente.",
-    });
   };
+
+  const title = isShared ? "¿Solicitar Eliminación?" : "¿Estás absolutamente seguro?";
+  const description = isShared 
+    ? "Se enviará una solicitud a la otra persona para confirmar la eliminación de esta deuda. La deuda se borrará para ambos una vez que sea aceptada."
+    : "Esta acción no se puede deshacer. Esto eliminará permanentemente la deuda de nuestros servidores.";
+  const cta = isShared ? "Sí, solicitar eliminación" : "Sí, eliminar deuda";
+
 
   return (
     <AlertDialog>
@@ -36,16 +41,15 @@ export function DeleteDebtAlertDialog({ onDelete, children }: DeleteDebtAlertDia
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>¿Estás absolutamente seguro?</AlertDialogTitle>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>
-            Esta acción no se puede deshacer. Esto eliminará permanentemente la deuda
-            de nuestros servidores.
+            {description}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancelar</AlertDialogCancel>
           <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">
-            Sí, eliminar deuda
+            {cta}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

@@ -1,18 +1,19 @@
-
 "use client";
 
 import Image from 'next/image';
-import { HandCoins, LogOut, PlusCircle, User as UserIcon, Users, Clipboard, ClipboardCheck } from 'lucide-react';
+import { HandCoins, LogOut, PlusCircle, User as UserIcon, Users, Clipboard, ClipboardCheck, QrCode, Smile } from 'lucide-react';
 import { ThemeToggle } from './theme-toggle';
 import { useAuth, useUser } from '@/firebase';
 import { Button } from './ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
-import { signOut } from 'firebase/auth';
+import { signOut, updateProfile } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
-import { ReactNode, useState } from 'react';
+import { ReactNode, useState, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
+import { QrCodeDialog } from './qr-code-dialog';
+import { CustomizeAvatarDialog } from './customize-avatar-dialog';
 
 interface DashboardHeaderProps {
     addDebtDialog: ReactNode;
@@ -24,6 +25,9 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
     const router = useRouter();
     const { toast } = useToast();
     const [copied, setCopied] = useState(false);
+    const [isQrDialogOpen, setIsQrDialogOpen] = useState(false);
+    const [isAvatarDialogOpen, setIsAvatarDialogOpen] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleSignOut = async () => {
         if(auth) {
@@ -63,8 +67,37 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
         });
     };
 
+    const handleAvatarUpdate = async (dataUrl: string) => {
+      if (!user) return;
+
+      const { id: toastId } = toast({
+          title: 'Actualizando Avatar...',
+          description: 'Por favor espera.',
+      });
+
+      try {
+          await updateProfile(user, { photoURL: dataUrl });
+          toast({
+              id: toastId,
+              title: '¡Avatar actualizado!',
+              description: 'Tu nuevo avatar ahora es visible.',
+          });
+          // Forzar recarga para que el nuevo avatar se muestre en todas partes
+          window.location.reload();
+      } catch (error: any) {
+          console.error("Error updating avatar: ", error);
+          toast({
+              id: toastId,
+              variant: "destructive",
+              title: "Error al actualizar",
+              description: error.message || "No se pudo cambiar tu avatar. Inténtalo de nuevo.",
+          });
+      }
+    };
+
 
     return (
+        <>
         <header className="sticky top-0 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6 z-10">
             <a href="/" className="flex items-center gap-2 font-semibold text-lg">
                 <HandCoins className="h-6 w-6 text-primary" />
@@ -87,11 +120,7 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
                         <DropdownMenuTrigger asChild>
                             <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                                 <Avatar className="h-8 w-8">
-                                    {user.photoURL ? (
-                                        <AvatarImage src={user.photoURL} alt={getUsername(user.email)} />
-                                    ) : (
-                                        <AvatarImage src={`https://avatar.vercel.sh/${user.uid}.png`} alt={getUsername(user.email)} />
-                                    )}
+                                    <AvatarImage src={user.photoURL ? user.photoURL : `https://avatar.vercel.sh/${user.uid}.png`} alt={getUsername(user.email)} />
                                     <AvatarFallback>{getInitials(user.email)}</AvatarFallback>
                                 </Avatar>
                             </Button>
@@ -117,6 +146,14 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
                                 </div>
                             </div>
                             <DropdownMenuSeparator />
+                            <DropdownMenuItem onSelect={() => setIsAvatarDialogOpen(true)} className="gap-2 cursor-pointer">
+                                <Smile className="h-4 w-4" />
+                                Personalizar Avatar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => setIsQrDialogOpen(true)} className="gap-2 cursor-pointer">
+                                <QrCode className="h-4 w-4" />
+                                Compartir con QR
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={handleSignOut} className="gap-2 cursor-pointer">
                                 <LogOut className="h-4 w-4" />
                                 Cerrar sesión
@@ -126,5 +163,23 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
                 )}
             </div>
         </header>
+        {user && (
+            <QrCodeDialog 
+                open={isQrDialogOpen}
+                onOpenChange={setIsQrDialogOpen}
+                userId={user.uid}
+                userName={getUsername(user.email)}
+            />
+        )}
+        {user && (
+            <CustomizeAvatarDialog
+                open={isAvatarDialogOpen}
+                onOpenChange={setIsAvatarDialogOpen}
+                onAvatarSave={handleAvatarUpdate}
+                currentAvatar={user.photoURL}
+            />
+        )}
+        </>
     );
 }
+    

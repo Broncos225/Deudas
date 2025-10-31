@@ -31,8 +31,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { FileImage, PlusCircle, Calendar as CalendarIcon, Trash2 } from "lucide-react";
+import { FileImage, PlusCircle, Calendar as CalendarIcon, Trash2, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import type { Debt, Debtor } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { fileToDataUrl } from '@/lib/utils';
@@ -43,7 +42,9 @@ import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { Timestamp } from 'firebase/firestore';
 import { ScrollArea } from './ui/scroll-area';
-import { useUser } from '@/firebase';
+import { useUser, useStorage } from '@/firebase';
+import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
+import { v4 as uuidv4 } from 'uuid';
 
 const debtFormSchema = z.object({
   debtorId: z.string({ required_error: "Debes seleccionar un deudor." }),
@@ -64,7 +65,7 @@ type DebtFormValues = z.infer<typeof debtFormSchema>;
 interface AddDebtDialogProps {
   debtors: Debtor[];
   debtToEdit?: Debt;
-  onAddDebt?: (newDebt: Omit<Debt, 'id' | 'payments' | 'debtorName'> & { receiptUrl?: string }) => void;
+  onAddDebt?: (newDebt: Omit<Debt, 'id' | 'payments' | 'debtorName'>) => void;
   onEditDebt?: (debtId: string, updatedDebt: Partial<Omit<Debt, 'id'>>, debtorName: string) => void;
   children?: React.ReactNode;
 }
@@ -74,7 +75,7 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
   const { toast } = useToast();
   const { user } = useUser();
   const isEditMode = !!debtToEdit;
-  const [selectedFile, setSelectedFile] = useState<FileList | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const form = useForm<DebtFormValues>({
     resolver: zodResolver(debtFormSchema),
@@ -147,13 +148,16 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
 
     let receiptDataUrl: string | undefined = undefined;
     
-    if (selectedFile && selectedFile.length > 0) {
-      try {
-        receiptDataUrl = await fileToDataUrl(selectedFile[0]);
-      } catch (error) {
-        toast({ variant: "destructive", title: "Error de Imagen", description: "No se pudo procesar la imagen del recibo."});
-        return;
-      }
+    if (selectedFile) {
+        const { id: toastId } = toast({ title: 'Procesando recibo...' });
+        try {
+            receiptDataUrl = await fileToDataUrl(selectedFile, 400, 600, 0.7);
+            toast({ id: toastId, title: 'Recibo procesado' });
+        } catch (error) {
+            console.error("Receipt processing error:", error);
+            toast({ id: toastId, variant: 'destructive', title: 'Error al procesar recibo', description: 'No se pudo procesar la imagen del recibo.' });
+            return;
+        }
     }
     
     const finalAmount = hasItems ? (data.items || []).reduce((sum, item) => sum + (item.value || 0), 0) : data.amount;
@@ -164,7 +168,7 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
         items: hasItems ? data.items : [],
         createdAt: Timestamp.fromDate(data.createdAt),
         ...(data.dueDate && { dueDate: Timestamp.fromDate(data.dueDate) }),
-        ...(receiptDataUrl && { receiptUrl: receiptDataUrl }),
+        receiptUrl: receiptDataUrl || debtToEdit?.receiptUrl,
     };
     
     if (baseDebtData.dueDate === undefined) {
@@ -179,9 +183,25 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
         baseDebtData.userTwoId = participants[1];
         baseDebtData.participants = participants;
         delete baseDebtData.userId; // Not needed for shared debts
+
+        if (isEditMode && debtToEdit) {
+            // If critical data changes, reset approval
+            if (debtToEdit.amount !== finalAmount || debtToEdit.concept !== data.concept) {
+                baseDebtData.status = 'pending';
+                baseDebtData.approvedBy = [user.uid]; // Only creator approves on edit
+                baseDebtData.rejectedBy = undefined;
+                baseDebtData.rejectionReason = undefined;
+            }
+        } else {
+             // New shared debt, set to pending
+            baseDebtData.status = 'pending';
+            baseDebtData.approvedBy = [user.uid];
+        }
+
     } else {
         baseDebtData.userId = user.uid;
         baseDebtData.isShared = false;
+        baseDebtData.status = 'approved'; // Private debts are auto-approved
     }
 
     if (isEditMode && debtToEdit && onEditDebt) {
@@ -225,31 +245,29 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
           <form onSubmit={form.handleSubmit(onSubmit)}>
             <ScrollArea className="h-[60vh] pr-6">
             <div className="space-y-4 py-4">
-             <FormField
+            <FormField
               control={form.control}
               name="type"
               render={({ field }) => (
                 <FormItem className="space-y-3">
                   <FormLabel>Tipo de deuda</FormLabel>
                   <FormControl>
-                    <RadioGroup
+                    <ToggleGroup
+                      type="single"
+                      variant="outline"
+                      className="grid grid-cols-2"
+                      value={field.value}
                       onValueChange={field.onChange}
-                      defaultValue={field.value}
-                      className="flex space-x-4"
                     >
-                      <FormItem className="flex items-center space-x-2 space-y-0">
-                        <FormControl>
-                          <RadioGroupItem value="iou" />
-                        </FormControl>
-                        <FormLabel className="font-normal">Tú debes</FormLabel>
-                      </FormItem>
-                      <FormItem className="flex items-center space-x-2 space-y-0">
-                        <FormControl>
-                          <RadioGroupItem value="uome" />
-                        </FormControl>
-                        <FormLabel className="font-normal">Te deben a ti</FormLabel>
-                      </FormItem>
-                    </RadioGroup>
+                      <ToggleGroupItem value="iou" className="h-12 flex-col gap-1 data-[state=on]:bg-red-500/10 data-[state=on]:border-red-500/50 data-[state=on]:text-red-700 dark:data-[state=on]:text-red-300">
+                        <ArrowDownLeft className="h-4 w-4" />
+                        <span className="text-xs">Tú debes</span>
+                      </ToggleGroupItem>
+                      <ToggleGroupItem value="uome" className="h-12 flex-col gap-1 data-[state=on]:bg-green-500/10 data-[state=on]:border-green-500/50 data-[state=on]:text-green-700 dark:data-[state=on]:text-green-300">
+                        <ArrowUpRight className="h-4 w-4" />
+                        <span className="text-xs">Te deben</span>
+                      </ToggleGroupItem>
+                    </ToggleGroup>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -471,7 +489,7 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
                     type="file" 
                     className="pl-10" 
                     accept="image/*"
-                    onChange={(e) => setSelectedFile(e.target.files)}
+                    onChange={(e) => setSelectedFile(e.target.files ? e.target.files[0] : null)}
                   />
                 </div>
               </FormControl>
@@ -492,5 +510,3 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
     </Dialog>
   );
 }
-
-    

@@ -36,6 +36,8 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { Timestamp } from 'firebase/firestore';
+import { useStorage, useUser } from '@/firebase';
+import { v4 as uuidv4 } from 'uuid';
 
 const paymentFormSchema = z.object({
   paymentType: z.enum(["parcial", "total"], { required_error: "Debes seleccionar un tipo de pago." }),
@@ -56,7 +58,9 @@ export function AddPaymentDialog({ debt, onAddPayment, children }: AddPaymentDia
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
   const formatCurrency = (amount: number, currency: string) => new Intl.NumberFormat("es-CO", { style: "currency", currency, minimumFractionDigits: 0 }).format(amount);
-  const [selectedFile, setSelectedFile] = useState<FileList | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const { user } = useUser();
+
 
   const calculateRemaining = (d: Debt) => d.amount - d.payments.reduce((sum, p) => sum + p.amount, 0);
   const remainingAmount = calculateRemaining(debt);
@@ -91,25 +95,26 @@ export function AddPaymentDialog({ debt, onAddPayment, children }: AddPaymentDia
 
 
   async function onSubmit(data: PaymentFormValues) {
+    if (!user) return;
+
     let receiptDataUrl: string | undefined = undefined;
     
-    if (selectedFile && selectedFile.length > 0) {
+    if (selectedFile) {
+      const { id: toastId } = toast({ title: 'Procesando recibo...' });
       try {
-        receiptDataUrl = await fileToDataUrl(selectedFile[0]);
+          receiptDataUrl = await fileToDataUrl(selectedFile, 400, 600, 0.7);
+          toast({ id: toastId, title: 'Recibo procesado' });
       } catch (error) {
-        toast({
-            variant: "destructive",
-            title: "Error de Imagen",
-            description: "No se pudo procesar la imagen del recibo.",
-        });
-        return;
+          console.error("Receipt processing error:", error);
+          toast({ id: toastId, variant: 'destructive', title: 'Error al procesar recibo', description: 'No se pudo procesar la imagen del recibo.' });
+          return;
       }
     }
 
     const newPayment: Omit<Payment, 'id'> = {
       amount: data.amount,
       date: Timestamp.fromDate(data.date),
-      ...(receiptDataUrl && { receiptUrl: receiptDataUrl }),
+      receiptUrl: receiptDataUrl,
     };
 
     onAddPayment(debt.id, newPayment);
@@ -228,7 +233,7 @@ export function AddPaymentDialog({ debt, onAddPayment, children }: AddPaymentDia
                     type="file"
                     className="pl-10"
                     accept="image/*"
-                    onChange={(e) => setSelectedFile(e.target.files)}
+                    onChange={(e) => setSelectedFile(e.target.files ? e.target.files[0] : null)}
                   />
                 </div>
               </FormControl>

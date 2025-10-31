@@ -13,10 +13,11 @@ export interface Payment {
   receiptUrl?: string;
   isSettlement?: boolean; // Flag to identify settlement payments
   settlementId?: string;    // ID of the settlement event
+  createdBy?: string; // UID of the user who added the payment
 }
 
 export interface Debtor {
-  id: string;
+  id:string;
   name: string;
   contact?: string;
   type: 'person' | 'entity';
@@ -27,6 +28,7 @@ export interface Debtor {
   // New fields for app user linking
   isAppUser?: boolean;
   appUserId?: string; // To store the linked user's UID
+  appUserPhotoUrl?: string; // Denormalized photo URL of the linked user
 }
 
 export interface Debt {
@@ -42,13 +44,22 @@ export interface Debt {
   dueDate?: Timestamp; // Optional due date
   payments: Payment[];
   receiptUrl?: string;
-  userId?: string; // For private debts
+  userId?: string; // For private debts OR the creator of a shared debt
   userOneId?: string; // For shared debts
   userTwoId?: string; // For shared debts
   participants?: string[]; // Array with userOneId and userTwoId for querying
   isShared?: boolean;
   isSettled?: boolean; // No longer used for logic, but for historical tracking if needed
   settlementId?: string; // Which settlement it was part of
+  creatorId?: string; // UID of the user who created the shared debt
+  // Approval system fields
+  status?: 'pending' | 'approved' | 'rejected';
+  approvedBy?: string[];
+  rejectedBy?: string;
+  rejectionReason?: string;
+  // Deletion system fields
+  deletionStatus?: 'none' | 'requested';
+  deletionRequestedBy?: string;
 }
 
 export interface Settlement {
@@ -58,4 +69,14 @@ export interface Settlement {
     amountSettled: number;
     currency: string;
     userId: string;
+}
+
+export interface ActivityLog {
+  id: string;
+  debtId: string;
+  userId: string;
+  userName: string;
+  message: string;
+  timestamp: Timestamp;
+  participants: string[];
 }

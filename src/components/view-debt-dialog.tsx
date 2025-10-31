@@ -19,17 +19,20 @@ import { ScrollArea } from './ui/scroll-area';
 import { Timestamp } from 'firebase/firestore';
 import { Button } from './ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
-import { MoreHorizontal, Edit, Trash2, ShieldCheck, Scale, Bell } from 'lucide-react';
+import { MoreHorizontal, Edit, Trash2, ShieldCheck, Scale, Bell, AlertTriangle } from 'lucide-react';
 import { DeletePaymentAlertDialog } from './delete-payment-alert-dialog';
 import { EditPaymentDialog } from './edit-payment-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { useUser } from '@/firebase';
 
 
 interface ViewDebtDialogProps {
   debt: Debt;
-  children: React.ReactNode;
+  children?: React.ReactNode;
   onEditPayment: (debtId: string, paymentId: string, updatedPayment: Partial<Omit<Payment, 'id'>>) => void;
   onDeletePayment: (debtId: string, paymentId: string) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 const ClientFormattedDate = ({ date, formatString }: { date: string | Date | Timestamp, formatString: string }) => {
@@ -87,10 +90,13 @@ const ImagePreviewDialog = ({ imageUrl, onOpenChange }: { imageUrl: string | nul
   };
 
 
-export function ViewDebtDialog({ debt, children, onEditPayment, onDeletePayment }: ViewDebtDialogProps) {
-  const [open, setOpen] = useState(false);
+export function ViewDebtDialog({ debt, children, onEditPayment, onDeletePayment, open: controlledOpen, onOpenChange: setControlledOpen }: ViewDebtDialogProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = setControlledOpen ?? setInternalOpen;
   const [activeReceipt, setActiveReceipt] = useState<{url: string, title: string} | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const { user } = useUser();
 
   useEffect(() => {
     if (open) {
@@ -109,35 +115,38 @@ export function ViewDebtDialog({ debt, children, onEditPayment, onDeletePayment 
   const paid = calculatePaid(debt);
   const remaining = debt.amount - paid;
   const hasItems = debt.items && debt.items.length > 0;
+  const isRejected = debt.status === 'rejected';
 
-  return (
-    <>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger asChild>
-          {children}
-        </DialogTrigger>
-        <DialogContent className="sm:max-w-2xl grid-rows-[auto,1fr] max-h-[90vh]">
+  const dialogContent = (
+      <DialogContent className="sm:max-w-2xl grid-rows-[auto,1fr] max-h-[90vh]">
           <DialogHeader>
-            <DialogTitle>Detalles de la Deuda: {debt.debtorName}</DialogTitle>
-            <DialogDescription className="flex items-center gap-4">
+          <DialogTitle>Detalles de la Deuda: {debt.debtorName}</DialogTitle>
+          <DialogDescription className="flex items-center gap-4">
               <span>{debt.concept} - Creada el <ClientFormattedDate date={debt.createdAt} formatString="PPP" /></span>
               {debt.dueDate && (
-                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
                   <Bell className="h-3 w-3" />
                   Vence el <ClientFormattedDate date={debt.dueDate} formatString="PPP" />
-                </span>
+              </span>
               )}
-            </DialogDescription>
+          </DialogDescription>
           </DialogHeader>
           <ScrollArea className="h-full">
-            <div className="grid md:grid-cols-2 gap-6 pr-6">
+          <div className="grid md:grid-cols-2 gap-6 pr-6">
               <div className="flex flex-col gap-4">
                   <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div><span className="font-medium text-muted-foreground">Deuda Total:</span> {formatCurrency(debt.amount, debt.currency)}</div>
-                    <div><span className="font-medium text-muted-foreground">Total Pagado:</span> {formatCurrency(paid, debt.currency)}</div>
-                    <div className="col-span-2 font-semibold"><span className="font-medium text-muted-foreground">Restante:</span> {formatCurrency(remaining, debt.currency)}</div>
+                  <div><span className="font-medium text-muted-foreground">Deuda Total:</span> {formatCurrency(debt.amount, debt.currency)}</div>
+                  <div><span className="font-medium text-muted-foreground">Total Pagado:</span> {formatCurrency(paid, debt.currency)}</div>
+                  <div className="col-span-2 font-semibold"><span className="font-medium text-muted-foreground">Restante:</span> {formatCurrency(remaining, debt.currency)}</div>
                   </div>
                   
+                  {isRejected && debt.rejectionReason && (
+                    <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md text-sm">
+                      <h4 className="font-semibold flex items-center gap-2 text-destructive"><AlertTriangle className="h-4 w-4" /> Deuda Rechazada</h4>
+                      <p className="text-destructive/90 mt-1 pl-6">Motivo: {debt.rejectionReason}</p>
+                    </div>
+                  )}
+
                   <Separator />
 
                   {hasItems && (
@@ -164,55 +173,57 @@ export function ViewDebtDialog({ debt, children, onEditPayment, onDeletePayment 
                   )}
                   
                   <div>
-                    <h4 className="font-medium mb-2">Historial de Pagos</h4>
-                    {debt.payments.length > 0 ? (
+                  <h4 className="font-medium mb-2">Historial de Pagos</h4>
+                  {debt.payments.length > 0 ? (
                       
-                        <ul className="space-y-2 text-sm">
-                          {debt.payments.map((payment) => (
-                            <li key={payment.id} className="flex justify-between items-center p-2 rounded-md bg-secondary/80">
+                      <ul className="space-y-2 text-sm">
+                          {debt.payments.map((payment) => {
+                          const canDelete = !payment.isSettlement && (!debt.isShared || payment.createdBy === user?.uid);
+                          return(
+                          <li key={payment.id} className="flex justify-between items-center p-2 rounded-md bg-secondary/80">
                               <div className="flex-1 flex items-center gap-2">
-                                {payment.isSettlement && <Scale className="h-4 w-4 text-muted-foreground" title="Pago de cruce" />}
-                                <div>
-                                    <span className="font-semibold">{formatCurrency(payment.amount, debt.currency)}</span>
-                                    <span className="text-muted-foreground block text-xs">
-                                        <ClientFormattedDate date={payment.date} formatString="MMM d, yyyy" />
-                                    </span>
-                                </div>
+                              {payment.isSettlement && <Scale className="h-4 w-4 text-muted-foreground" title="Pago de cruce" />}
+                              <div>
+                                  <span className="font-semibold">{formatCurrency(payment.amount, debt.currency)}</span>
+                                  <span className="text-muted-foreground block text-xs">
+                                      <ClientFormattedDate date={payment.date} formatString="MMM d, yyyy" />
+                                  </span>
+                              </div>
                               </div>
                               <div className="flex items-center gap-1">
-                                {payment.receiptUrl && (
+                              {payment.receiptUrl && (
                                   <Button variant="outline" size="sm" onClick={() => payment.receiptUrl && setActiveReceipt({ url: payment.receiptUrl, title: `Recibo del Pago - ${format(payment.date instanceof Timestamp ? payment.date.toDate() : new Date(), "MMM d", { locale: es })}` })}>Ver Recibo</Button>
-                                )}
-                                {!payment.isSettlement && (
-                                    <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button variant="ghost" size="icon" className="h-6 w-6">
-                                        <MoreHorizontal className="h-4 w-4" />
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                        <DropdownMenuLabel>Acciones del Pago</DropdownMenuLabel>
-                                        <EditPaymentDialog debt={debt} payment={payment} onEditPayment={onEditPayment}>
-                                            <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="gap-2">
-                                                <Edit className="h-4 w-4" /> Editar
-                                            </DropdownMenuItem>
-                                        </EditPaymentDialog>
-                                        <DeletePaymentAlertDialog onDelete={() => onDeletePayment(debt.id, payment.id)}>
-                                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-red-500 focus:text-red-500 focus:bg-red-50 gap-2">
-                                            <Trash2 className="h-4 w-4" /> Eliminar
-                                        </DropdownMenuItem>
-                                        </DeletePaymentAlertDialog>
-                                    </DropdownMenuContent>
-                                    </DropdownMenu>
-                                )}
+                              )}
+                              {!payment.isSettlement && (
+                                  <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                      <Button variant="ghost" size="icon" className="h-6 w-6">
+                                      <MoreHorizontal className="h-4 w-4" />
+                                      </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                      <DropdownMenuLabel>Acciones del Pago</DropdownMenuLabel>
+                                      <EditPaymentDialog debt={debt} payment={payment} onEditPayment={onEditPayment}>
+                                          <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="gap-2" disabled={!canDelete}>
+                                              <Edit className="h-4 w-4" /> Editar
+                                          </DropdownMenuItem>
+                                      </EditPaymentDialog>
+                                      <DeletePaymentAlertDialog onDelete={() => onDeletePayment(debt.id, payment.id)}>
+                                      <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-red-500 focus:text-red-500 focus:bg-red-50 gap-2" disabled={!canDelete}>
+                                          <Trash2 className="h-4 w-4" /> Eliminar
+                                      </DropdownMenuItem>
+                                      </DeletePaymentAlertDialog>
+                                  </DropdownMenuContent>
+                                  </DropdownMenu>
+                              )}
                               </div>
-                            </li>
-                          ))}
-                        </ul>
+                          </li>
+                          )})}
+                      </ul>
                       
-                    ) : (
+                  ) : (
                       <p className="text-sm text-muted-foreground">Aún no se han registrado pagos.</p>
-                    )}
+                  )}
                   </div>
               </div>
               <div className="flex flex-col mt-6 md:mt-0">
@@ -242,9 +253,16 @@ export function ViewDebtDialog({ debt, children, onEditPayment, onDeletePayment 
                     </div>
                 )}
               </div>
-            </div>
+          </div>
           </ScrollArea>
-        </DialogContent>
+      </DialogContent>
+  );
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={setOpen}>
+        {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
+        {open && dialogContent}
       </Dialog>
       <ImagePreviewDialog imageUrl={imagePreviewUrl} onOpenChange={() => setImagePreviewUrl(null)} />
     </>

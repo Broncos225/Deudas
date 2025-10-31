@@ -25,13 +25,14 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { PlusCircle } from "lucide-react";
+import { Camera, PlusCircle } from "lucide-react";
 import type { Debtor } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Switch } from './ui/switch';
 import { Separator } from './ui/separator';
+import { QrScannerDialog } from './qr-scanner';
 
 const debtorFormSchema = z.object({
   name: z.string().min(2, { message: "El nombre debe tener al menos 2 caracteres." }),
@@ -65,6 +66,7 @@ export function AddDebtorDialog({ onAddDebtor, onEditDebtor, debtorToEdit, child
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
   const isEditMode = !!debtorToEdit;
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
 
   const form = useForm<DebtorFormValues>({
     resolver: zodResolver(debtorFormSchema),
@@ -136,6 +138,16 @@ export function AddDebtorDialog({ onAddDebtor, onEditDebtor, debtorToEdit, child
     }
     setOpen(false);
   }
+  
+  const handleScanSuccess = (result: string) => {
+    form.setValue('appUserId', result, { shouldValidate: true });
+    setIsScannerOpen(false);
+    toast({
+        title: "¡Código Escaneado!",
+        description: "El código de usuario ha sido rellenado.",
+    })
+  };
+
 
   const trigger = children ? (
     <DialogTrigger asChild>{children}</DialogTrigger>
@@ -149,6 +161,7 @@ export function AddDebtorDialog({ onAddDebtor, onEditDebtor, debtorToEdit, child
   );
 
   return (
+    <>
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger}
       <DialogContent className="sm:max-w-md">
@@ -295,9 +308,15 @@ export function AddDebtorDialog({ onAddDebtor, onEditDebtor, debtorToEdit, child
                     render={({ field }) => (
                         <FormItem className="mt-4">
                         <FormLabel>Código de Usuario</FormLabel>
-                        <FormControl>
-                            <Input placeholder="Pega el código de usuario aquí" {...field} />
-                        </FormControl>
+                        <div className="flex items-center gap-2">
+                            <FormControl>
+                                <Input placeholder="Pega o escanea el código" {...field} />
+                            </FormControl>
+                            <Button type="button" variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
+                                <Camera className="h-4 w-4" />
+                                <span className="sr-only">Escanear código QR</span>
+                            </Button>
+                        </div>
                         <FormMessage />
                         </FormItem>
                     )}
@@ -314,6 +333,14 @@ export function AddDebtorDialog({ onAddDebtor, onEditDebtor, debtorToEdit, child
         </Form>
       </DialogContent>
     </Dialog>
+    {isScannerOpen && (
+        <QrScannerDialog
+            open={isScannerOpen}
+            onOpenChange={setIsScannerOpen}
+            onScanSuccess={handleScanSuccess}
+        />
+    )}
+    </>
   );
 }
 

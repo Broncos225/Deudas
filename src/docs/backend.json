@@ -90,6 +90,35 @@
         "settlementId": {
             "type": "string",
             "description": "Which settlement it was part of"
+        },
+        "status": {
+            "type": "string",
+            "description": "The approval status of a shared debt.",
+            "enum": ["pending", "approved", "rejected"]
+        },
+        "approvedBy": {
+            "type": "array",
+            "description": "List of user UIDs who have approved the debt.",
+            "items": {
+                "type": "string"
+            }
+        },
+        "rejectedBy": {
+            "type": "string",
+            "description": "The UID of the user who rejected the debt."
+        },
+        "rejectionReason": {
+            "type": "string",
+            "description": "The reason why the debt was rejected."
+        },
+        "deletionStatus": {
+            "type": "string",
+            "description": "The consensus deletion status of a shared debt.",
+            "enum": ["none", "requested"]
+        },
+        "deletionRequestedBy": {
+            "type": "string",
+            "description": "The UID of the user who requested the deletion."
         }
       },
       "required": [
@@ -252,7 +281,51 @@
           "currency",
           "userId"
         ]
-      }
+    },
+    "ActivityLog": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "Activity Log",
+        "type": "object",
+        "description": "Records an event related to a shared debt.",
+        "properties": {
+            "debtId": {
+                "type": "string",
+                "description": "The ID of the shared debt this log refers to."
+            },
+            "userId": {
+                "type": "string",
+                "description": "The ID of the user who performed the action."
+            },
+            "userName": {
+                "type": "string",
+                "description": "The denormalized name of the user for display."
+            },
+            "message": {
+                "type": "string",
+                "description": "A human-readable message describing the activity."
+            },
+            "timestamp": {
+                "type": "string",
+                "description": "When the activity occurred.",
+                "format": "date-time"
+            },
+            "participants": {
+                "type": "array",
+                "description": "An array containing the UIDs of both users involved in the debt for querying.",
+                "items": {
+                    "type": "string"
+                }
+            }
+        },
+        "required": [
+            "debtId",
+            "userId",
+            "userName",
+            "message",
+            "timestamp",
+            "participants"
+        ]
+    }
   },
   "auth": {
     "providers": [
@@ -288,9 +361,14 @@
           "$ref": "#/entities/Settlement"
         },
         "description": "Stores the history of debt settlement events."
+      },
+      {
+        "path": "/activity_logs/{logId}",
+        "schema": {
+          "$ref": "#/entities/ActivityLog"
+        },
+        "description": "Stores activity logs for shared debts."
       }
     ]
   }
 }
-
-    

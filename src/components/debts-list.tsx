@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import type { Debt, Debtor, Payment } from "@/lib/types";
 import { format, isValid, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
-import { MoreHorizontal, Edit, Trash2, ArrowDownLeft, ArrowUpRight, Wallet, Loader, CheckCircle, Bell } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, ArrowDownLeft, ArrowUpRight, Wallet, Loader, CheckCircle, Bell, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -21,10 +21,13 @@ import { Timestamp } from 'firebase/firestore';
 import { AddDebtDialog } from './add-debt-dialog';
 import { DeleteDebtAlertDialog } from './delete-debt-alert-dialog';
 import { Card, CardContent } from './ui/card';
+import { User } from 'firebase/auth';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 
 interface DebtsListProps {
   debts: Debt[];
   debtors: Debtor[];
+  user: User | null;
   onAddPayment: (debtId: string, newPayment: Omit<Payment, 'id'>) => void;
   onEditDebt: (debtId: string, updatedDebt: Partial<Omit<Debt, 'id'>>, debtorName: string) => void;
   onDeleteDebt: (debtId: string) => void;
@@ -58,7 +61,8 @@ const ClientFormattedDate = ({ date, prefix }: { date: string | Date | Timestamp
 
 export function DebtsList({ 
     debts, 
-    debtors, 
+    debtors,
+    user,
     onAddPayment, 
     onEditDebt, 
     onDeleteDebt, 
@@ -127,6 +131,7 @@ export function DebtsList({
                     const remaining = calculateRemaining(debt);
                     const isPaid = remaining <= 0.01;
                     const isIOU = debt.type === 'iou';
+                    const isCreator = user ? user.uid === debt.userId : false;
 
                     return (
                         <div key={debt.id} className="grid grid-cols-[1fr,auto] md:grid-cols-[2fr,1fr,1fr,1fr,auto] gap-2 md:gap-4 items-center p-4 border-b last:border-0 hover:bg-muted/50 transition-colors">
@@ -189,11 +194,26 @@ export function DebtsList({
                                             </>
                                         )}
                                         <DropdownMenuSeparator />
-                                        <DeleteDebtAlertDialog onDelete={() => onDeleteDebt(debt.id)}>
-                                            <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-red-500 focus:text-red-500 focus:bg-red-50 gap-2">
-                                                <Trash2 className="h-4 w-4" /> Eliminar
-                                            </DropdownMenuItem>
-                                        </DeleteDebtAlertDialog>
+                                        {isCreator ? (
+                                            <DeleteDebtAlertDialog onDelete={() => onDeleteDebt(debt.id)}>
+                                                <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-red-500 focus:text-red-500 focus:bg-red-50 gap-2">
+                                                    <Trash2 className="h-4 w-4" /> Eliminar
+                                                </DropdownMenuItem>
+                                            </DeleteDebtAlertDialog>
+                                        ) : (
+                                            <TooltipProvider delayDuration={100}>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled className="gap-2 text-muted-foreground">
+                                                            <Trash2 className="h-4 w-4" /> Eliminar
+                                                        </DropdownMenuItem>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>
+                                                        <p>Solo el creador de la deuda puede eliminarla.</p>
+                                                    </TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
+                                        )}
                                     </DropdownMenuContent>
                                 </DropdownMenu>
                             </div>

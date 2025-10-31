@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { Debtor } from "@/lib/types";
@@ -32,6 +31,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 
 
 interface DebtorDetailsProps {
@@ -42,6 +42,16 @@ interface DebtorDetailsProps {
   onSyncDebts: (debtorId: string) => void;
   isLoading: boolean;
 }
+
+const getInitials = (name: string) => {
+    if (!name) return '??';
+    const parts = name.split(' ');
+    if (parts.length > 1 && parts[0] && parts[1]) {
+        return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
+}
+
 
 export function DebtorDetails({ debtors, onAddDebtor, onEditDebtor, onDeleteDebtor, onSyncDebts, isLoading }: DebtorDetailsProps) {
   
@@ -59,9 +69,16 @@ export function DebtorDetails({ debtors, onAddDebtor, onEditDebtor, onDeleteDebt
         return (
             <div key={debtor.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
             <div className="flex items-center gap-4">
-                <div className="p-2 bg-secondary rounded-full">
-                    {debtor.type === 'person' ? <User className="h-5 w-5 text-secondary-foreground" /> : <Building className="h-5 w-5 text-secondary-foreground" />}
-                </div>
+                <Avatar className="h-10 w-10">
+                    {debtor.isAppUser && debtor.appUserPhotoUrl ? (
+                         <AvatarImage src={debtor.appUserPhotoUrl} alt={debtor.name} />
+                    ) : (
+                        debtor.isAppUser && <AvatarImage src={`https://avatar.vercel.sh/${debtor.appUserId}.png`} alt={debtor.name} />
+                    )}
+                    <AvatarFallback className="bg-secondary text-secondary-foreground">
+                        {getInitials(debtor.name)}
+                    </AvatarFallback>
+                </Avatar>
                 <div className="flex-1">
                     <p className="font-semibold">{debtor.name}</p>
                     <div className="text-sm text-muted-foreground space-y-1 mt-1">

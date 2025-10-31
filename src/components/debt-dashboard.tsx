@@ -3,14 +3,14 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { Debt, Payment, Debtor, Settlement } from '@/lib/types';
+import type { Debt, Payment, Debtor, Settlement, ActivityLog } from '@/lib/types';
 import DashboardHeader from '@/components/dashboard-header';
 import { DebtsGrid } from '@/components/debts-grid';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowDownLeft, ArrowUpRight, LayoutGrid, List, Loader, PlusCircle, FileDown } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking, useUser } from '@/firebase';
-import { collection, doc, Timestamp, writeBatch, query, where, getDocs, addDoc } from 'firebase/firestore';
+import { collection, doc, Timestamp, writeBatch, query, where, getDocs, addDoc, arrayUnion, deleteField, getDoc } from 'firebase/firestore';
 import { DebtorDetails } from './debtor-details';
 import { DebtsByPerson } from './debts-by-person';
 import { Skeleton } from './ui/skeleton';
@@ -25,6 +25,9 @@ import { DebtsList } from './debts-list';
 import { DebtFilters, type Filters } from './debt-filters';
 import { exportToCSV, exportToPDF } from '@/lib/export';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
+import { ActivityFeed } from './activity-feed';
+import { ViewDebtDialog } from './view-debt-dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 
 export default function DebtDashboard() {
@@ -40,6 +43,7 @@ export default function DebtDashboard() {
     currency: 'all',
     debtorId: 'all',
   });
+  const [debtToView, setDebtToView] = useState<Debt | null>(null);
 
 
   useEffect(() => {
@@ -59,8 +63,11 @@ export default function DebtDashboard() {
   }, [firestore, user?.uid]);
 
   const sharedDebtsQuery = useMemoFirebase(() => {
-    if (!firestore || !user?.uid) return null;
-    return query(collection(firestore, 'debts_shared'), where('participants', 'array-contains', user.uid));
+    if (!firestore || !user?.uid) {
+      return null;
+    }
+    const q = query(collection(firestore, 'debts_shared'), where('participants', 'array-contains', user.uid));
+    return q;
   }, [firestore, user?.uid]);
 
 
@@ -69,51 +76,149 @@ export default function DebtDashboard() {
     return collection(firestore, 'users', user.uid, 'settlements');
     }, [firestore, user?.uid]);
     
-  const { data: debtors, isLoading: isLoadingDebtors } = useCollection<Debtor>(debtorsRef);
+  const { data: rawDebtors, isLoading: isLoadingDebtors } = useCollection<Debtor>(debtorsRef);
   const { data: privateDebts, isLoading: isLoadingPrivateDebts } = useCollection<Debt>(privateDebtsRef);
   const { data: sharedDebtsData, isLoading: isLoadingSharedDebts } = useCollection<Debt>(sharedDebtsQuery);
   const { data: settlements, isLoading: isLoadingSettlements } = useCollection<Settlement>(settlementsRef);
 
-  const debts = useMemo(() => {
-    if (!user || !debtors) return [];
-  
-    // Filter out private debts that have been migrated
-    const nonSharedPrivateDebts = (privateDebts || []).filter(d => !d.isShared);
-    
-    const allDebts: Debt[] = [...nonSharedPrivateDebts];
-  
-    if (sharedDebtsData) {
-      const processedSharedDebts = sharedDebtsData.map(sharedDebt => {
-        const otherUserId = sharedDebt.participants?.find(pId => pId !== user.uid);
-        const localDebtor = debtors.find(d => d.isAppUser && d.appUserId === otherUserId);
-  
-        if (localDebtor) {
-          return {
-            ...sharedDebt,
-            debtorId: localDebtor.id,
-            debtorName: localDebtor.name,
-          };
+  const [enrichedDebtors, setEnrichedDebtors] = useState<Debtor[]>([]);
+  const [isEnriching, setIsEnriching] = useState(true);
+
+  useEffect(() => {
+    const enrichDebtors = async () => {
+      if (!firestore || !rawDebtors) {
+        setIsEnriching(false);
+        return;
+      };
+
+      setIsEnriching(true);
+      const debtorPromises = rawDebtors.map(async (debtor) => {
+        if (debtor.isAppUser && debtor.appUserId) {
+          try {
+            // This is a simplification. In a real app, you wouldn't have direct access
+            // to other users' profiles. You'd likely use a Cloud Function or have a
+            // public 'users_public' collection. Here, we simulate getting their photo.
+            // We can't fetch `users/{uid}` due to security rules.
+            // A workaround: Check shared debts to find a debt with that user.
+            const userPublicData: { photoURL?: string } = {}; 
+            
+            // For now, let's just mark that we know it's a user.
+            // The avatar component can then construct a fallback URL.
+            // We'll pass the photoURL if we have it from some other source.
+            // In our case, the debtor doesn't store the other user's photo.
+            return { ...debtor }; 
+          } catch (error) {
+            console.warn(`Could not fetch public data for user ${debtor.appUserId}`, error);
+            return debtor;
+          }
         }
-        
-        // Fallback name if no local contact is found for the shared debt participant
-        const creatorId = sharedDebt.participants?.find(pId => pId === sharedDebt.userId);
-        const fallbackName = `Usuario ${otherUserId?.substring(0,5)}...`;
-        
-        return {
-          ...sharedDebt,
-          debtorName: fallbackName,
-          debtorId: otherUserId || 'unknown'
-        };
+        return debtor;
       });
-      allDebts.push(...processedSharedDebts);
+
+      const results = await Promise.all(debtorPromises);
+      setEnrichedDebtors(results);
+      setIsEnriching(false);
+    };
+
+    enrichDebtors();
+  }, [rawDebtors, firestore]);
+
+  const debtors = enrichedDebtors;
+
+  const formatCurrency = (amount: number, currency: string) => new Intl.NumberFormat('es-CO', { style: 'currency', currency, minimumFractionDigits: 0 }).format(amount);
+
+  const getUsername = (email: string | null | undefined) => {
+    if (!email) return 'Usuario';
+    const username = email.split('@')[0];
+    return username.charAt(0).toUpperCase() + username.slice(1);
+  }
+
+  const addActivityLog = (message: string, debtId: string, participants: string[]) => {
+    if (!firestore || !user) return;
+    
+    if (!participants || participants.length === 0) {
+      console.warn('⚠️ No se creó log de actividad: participants está vacío', { message, debtId });
+      return;
     }
     
-    // Use a Map to ensure debts are unique by ID, giving preference to the latest version.
-    const uniqueDebts = new Map(allDebts.map(d => [d.id, d]));
-    return Array.from(uniqueDebts.values());
+    const activityLog: Omit<ActivityLog, 'id'> = {
+      debtId: debtId,
+      userId: user.uid,
+      userName: getUsername(user.email),
+      message: message,
+      timestamp: Timestamp.now(),
+      participants: participants
+    };
   
-  }, [privateDebts, sharedDebtsData, debtors, user]);
+    addDocumentNonBlocking(collection(firestore, 'activity_logs'), activityLog);
+};
 
+const createEditActivityLog = (
+    debt: Debt, 
+    updatedData: Partial<Debt>,
+    debtorName: string
+) => {
+    if (!user || !debt.participants) return;
+
+    const changes = [];
+    if (updatedData.concept && updatedData.concept !== debt.concept) {
+        changes.push(`cambió el concepto de "${debt.concept}" a "${updatedData.concept}"`);
+    }
+    if (updatedData.amount && updatedData.amount !== debt.amount) {
+        const oldAmount = formatCurrency(debt.amount, debt.currency);
+        const newAmount = formatCurrency(updatedData.amount, updatedData.currency || debt.currency);
+        changes.push(`cambió el monto de ${oldAmount} a ${newAmount}`);
+    }
+    if (updatedData.debtorId && updatedData.debtorId !== debt.debtorId) {
+        changes.push(`cambió la persona de "${debt.debtorName}" a "${debtorName}"`);
+    }
+
+    let message;
+    if (changes.length > 0) {
+        message = `${getUsername(user.email)} editó la deuda "${debt.concept}": ${changes.join(', ')}.`;
+    } else {
+        message = `${getUsername(user.email)} editó la deuda "${debt.concept}".`;
+    }
+    
+    if (updatedData.status === 'pending') {
+        message += ` La deuda ahora requiere nueva aprobación.`
+    }
+
+    addActivityLog(message, debt.id, debt.participants);
+};
+
+const debts = useMemo(() => {
+    if (!user || !debtors) return [];
+
+    const privateDebtsList = (privateDebts || []).filter(d => !d.isShared);
+
+    const processedSharedDebts = (sharedDebtsData || []).map(sharedDebt => {
+        const creatorId = sharedDebt.creatorId || sharedDebt.userId; 
+        const isCurrentUserTheCreator = creatorId === user.uid;
+        
+        let perspectiveDebtType = sharedDebt.type;
+        if (!isCurrentUserTheCreator) {
+            perspectiveDebtType = sharedDebt.type === 'iou' ? 'uome' : 'iou';
+        }
+        
+        const otherUserId = sharedDebt.participants?.find(pId => pId !== user.uid);
+        const localDebtorForSharedDebt = debtors.find(d => d.isAppUser && d.appUserId === otherUserId);
+
+        return {
+            ...sharedDebt,
+            type: perspectiveDebtType,
+            debtorName: localDebtorForSharedDebt?.name || `Usuario ${otherUserId?.substring(0, 5)}...`,
+            debtorId: localDebtorForSharedDebt?.id || otherUserId || 'unknown_debtor',
+            isCreator: isCurrentUserTheCreator,
+        };
+    });
+
+    const allDebts = [...privateDebtsList, ...processedSharedDebts];
+    const uniqueDebts = new Map(allDebts.map(d => [d.id, d]));
+    
+    return Array.from(uniqueDebts.values());
+
+}, [privateDebts, sharedDebtsData, debtors, user]);
 
 
   const handleAddDebt = (newDebt: Omit<Debt, 'id' | 'payments' | 'debtorName'>) => {
@@ -134,10 +239,14 @@ export default function DebtDashboard() {
         debtToAdd.participants = participants;
         debtToAdd.userOneId = participants[0];
         debtToAdd.userTwoId = participants[1];
-        debtToAdd.userId = user.uid; // The creator's ID
+        debtToAdd.creatorId = user.uid; 
+        delete debtToAdd.userId; 
+        debtToAdd.status = 'pending';
+        debtToAdd.approvedBy = [user.uid];
     } else {
         debtToAdd.isShared = false;
         debtToAdd.userId = user.uid;
+        debtToAdd.status = 'approved';
     }
 
     if (debtToAdd.dueDate === undefined) delete debtToAdd.dueDate;
@@ -147,8 +256,16 @@ export default function DebtDashboard() {
       ? collection(firestore, 'debts_shared')
       : collection(firestore, 'users', user.uid, 'debts');
 
-    addDocumentNonBlocking(collectionRef, debtToAdd);
-  };
+    addDocumentNonBlocking(collectionRef, debtToAdd).then(docRef => {
+        if (debtToAdd.isShared && docRef && debtToAdd.participants && debtToAdd.participants.length > 0) {
+            addActivityLog(
+                `${getUsername(user.email)} creó una nueva deuda compartida "${debtToAdd.concept}" con ${debtor.name} (pendiente de aprobación).`, 
+                docRef.id, 
+                debtToAdd.participants
+            );
+        }
+    });
+};
   
   const handleEditDebt = (debtId: string, updatedDebt: Partial<Omit<Debt, 'id'>>, debtorName: string) => {
     if (!firestore || !user || !debts) return;
@@ -162,8 +279,64 @@ export default function DebtDashboard() {
 
     if (globalUpdateData.dueDate === undefined) delete globalUpdateData.dueDate;
     if (globalUpdateData.items === undefined) delete globalUpdateData.items;
+
+    if (globalUpdateData.isShared && globalUpdateData.status === 'pending') {
+        (globalUpdateData as any).rejectedBy = deleteField();
+        (globalUpdateData as any).rejectionReason = deleteField();
+    }
     
     updateDocumentNonBlocking(debtDocRef, globalUpdateData);
+    
+    if (debt.isShared && debt.participants && debt.participants.length > 0) {
+        createEditActivityLog(debt, globalUpdateData, debtorName);
+    }
+};
+
+  const handleApproveDebt = (debtId: string) => {
+    if (!firestore || !user || !debts) return;
+    const debt = debts.find(d => d.id === debtId);
+    if (!debt || !debt.isShared) return;
+
+    const collectionPath = 'debts_shared';
+    const debtDocRef = doc(firestore, collectionPath, debtId);
+
+    const updateData: Partial<Debt> = {
+      approvedBy: arrayUnion(user.uid) as unknown as string[],
+    };
+
+    if (debt.participants && debt.participants.length -1 === debt.approvedBy?.length) {
+      updateData.status = 'approved';
+    }
+    
+    updateDocumentNonBlocking(debtDocRef, updateData);
+
+    if (debt.participants) {
+      const message = updateData.status === 'approved' 
+        ? `${getUsername(user.email)} aprobó y activó la deuda "${debt.concept}".`
+        : `${getUsername(user.email)} aprobó la deuda "${debt.concept}".`;
+      addActivityLog(message, debtId, debt.participants);
+    }
+  };
+
+  const handleRejectDebt = (debtId: string, reason: string) => {
+    if (!firestore || !user || !debts) return;
+    const debt = debts.find(d => d.id === debtId);
+    if (!debt || !debt.isShared) return;
+
+    const collectionPath = 'debts_shared';
+    const debtDocRef = doc(firestore, collectionPath, debtId);
+
+    const updateData: Partial<Debt> = {
+      status: 'rejected',
+      rejectedBy: user.uid,
+      rejectionReason: reason
+    };
+
+    updateDocumentNonBlocking(debtDocRef, updateData);
+
+    if (debt.participants) {
+      addActivityLog(`${getUsername(user.email)} rechazó la deuda "${debt.concept}". Motivo: ${reason}`, debtId, debt.participants);
+    }
   };
   
   const handleDeleteDebtor = (debtorId: string) => {
@@ -176,11 +349,79 @@ export default function DebtDashboard() {
     if (!firestore || !user || !debts) return;
     const debt = debts.find(d => d.id === debtId);
     if (!debt) return;
-
-    const collectionPath = debt.isShared ? 'debts_shared' : `users/${user.uid}/debts`;
-    const debtDocRef = doc(firestore, collectionPath, debtId);
     
+    if (debt.isShared) {
+        const collectionPath = 'debts_shared';
+        const debtDocRef = doc(firestore, collectionPath, debtId);
+        
+        const updateData: Partial<Debt> = {
+            deletionStatus: 'requested',
+            deletionRequestedBy: user.uid,
+        };
+
+        updateDocumentNonBlocking(debtDocRef, updateData);
+
+        if (debt.participants) {
+            addActivityLog(
+                `${getUsername(user.email)} solicitó eliminar la deuda "${debt.concept}".`, 
+                debtId, 
+                debt.participants
+            );
+        }
+        toast({
+            title: 'Solicitud de Eliminación Enviada',
+            description: 'La otra parte debe confirmar para eliminar la deuda permanentemente.',
+        });
+    } else {
+        const debtDocRef = doc(firestore, `users/${user.uid}/debts`, debtId);
+        deleteDocumentNonBlocking(debtDocRef);
+        toast({
+            title: 'Deuda Eliminada',
+            description: 'La deuda ha sido eliminada permanentemente.',
+        });
+    }
+};
+
+  const handleConfirmDeletion = (debtId: string) => {
+    if (!firestore || !user || !debts) return;
+    const debt = debts.find(d => d.id === debtId);
+    if (!debt || !debt.isShared) return;
+
+    const debtDocRef = doc(firestore, 'debts_shared', debtId);
     deleteDocumentNonBlocking(debtDocRef);
+
+    if (debt.participants) {
+      addActivityLog(
+        `${getUsername(user.email)} confirmó la eliminación de la deuda "${debt.concept}".`,
+        debtId,
+        debt.participants
+      );
+    }
+    toast({
+      title: 'Deuda Eliminada',
+      description: 'La deuda compartida ha sido eliminada permanentemente.',
+    });
+  };
+
+  const handleCancelDeletionRequest = (debtId: string) => {
+    if (!firestore || !user || !debts) return;
+    const debt = debts.find(d => d.id === debtId);
+    if (!debt || !debt.isShared) return;
+
+    const debtDocRef = doc(firestore, 'debts_shared', debtId);
+    const updateData = {
+      deletionStatus: 'none',
+      deletionRequestedBy: deleteField(),
+    };
+    updateDocumentNonBlocking(debtDocRef, updateData);
+
+    if (debt.participants) {
+      addActivityLog(
+        `${getUsername(user.email)} canceló la solicitud de eliminación para la deuda "${debt.concept}".`,
+        debtId,
+        debt.participants
+      );
+    }
   };
 
   const handleAddPayment = (debtId: string, newPayment: Omit<Payment, 'id'>) => {
@@ -190,7 +431,8 @@ export default function DebtDashboard() {
     
     const paymentToAdd: Payment = {
       ...newPayment,
-      id: doc(collection(firestore, 'dummy')).id, // Firestore-like random ID
+      id: doc(collection(firestore, 'dummy')).id,
+      createdBy: user.uid,
     };
 
     const updatedPayments = [...debt.payments, paymentToAdd];
@@ -198,12 +440,24 @@ export default function DebtDashboard() {
     const debtDocRef = doc(firestore, collectionPath, debtId);
 
     updateDocumentNonBlocking(debtDocRef, { payments: updatedPayments });
-  };
+
+    if (debt.isShared && debt.participants && debt.participants.length > 0) {
+        const paymentAmount = formatCurrency(newPayment.amount, debt.currency);
+        addActivityLog(
+            `${getUsername(user.email)} registró un pago de ${paymentAmount} en la deuda "${debt.concept}".`, 
+            debtId, 
+            debt.participants
+        );
+    }
+};
 
   const handleEditPayment = (debtId: string, paymentId: string, updatedPaymentData: Partial<Omit<Payment, 'id'>>) => {
     if (!firestore || !user || !debts) return;
     const debt = debts.find(d => d.id === debtId);
     if (!debt) return;
+
+    const originalPayment = debt.payments.find(p => p.id === paymentId);
+    if (!originalPayment) return;
 
     const updatedPayments = debt.payments.map(p => {
         if (p.id === paymentId) {
@@ -216,6 +470,22 @@ export default function DebtDashboard() {
     const debtDocRef = doc(firestore, collectionPath, debtId);
 
     updateDocumentNonBlocking(debtDocRef, { payments: updatedPayments });
+    
+    if (debt.isShared && debt.participants && debt.participants.length > 0) {
+        const originalAmount = formatCurrency(originalPayment.amount, debt.currency);
+        const newAmount = formatCurrency(updatedPaymentData.amount ?? originalPayment.amount, debt.currency);
+        
+        let message = `${getUsername(user.email)} editó un pago en la deuda "${debt.concept}".`;
+        if (originalAmount !== newAmount) {
+            message = `${getUsername(user.email)} editó un pago de ${originalAmount} a ${newAmount} en la deuda "${debt.concept}".`;
+        }
+
+        addActivityLog(
+            message,
+            debtId, 
+            debt.participants
+        );
+    }
   };
 
   const handleDeletePayment = (debtId: string, paymentId: string) => {
@@ -223,17 +493,27 @@ export default function DebtDashboard() {
     const debt = debts.find(d => d.id === debtId);
     if (!debt) return;
 
+    const paymentToDelete = debt.payments.find(p => p.id === paymentId);
     const updatedPayments = debt.payments.filter(p => p.id !== paymentId);
     const collectionPath = debt.isShared ? 'debts_shared' : `users/${user.uid}/debts`;
     const debtDocRef = doc(firestore, collectionPath, debtId);
     updateDocumentNonBlocking(debtDocRef, { payments: updatedPayments });
+
+    if (debt.isShared && debt.participants && debt.participants.length > 0 && paymentToDelete) {
+      const paymentAmount = formatCurrency(paymentToDelete.amount, debt.currency);
+      addActivityLog(
+          `${getUsername(user.email)} eliminó un pago de ${paymentAmount} en la deuda "${debt.concept}".`, 
+          debtId, 
+          debt.participants
+      );
+    }
   };
   
   const handleSettleDebts = async (debtorId: string, iouTotal: number, uomeTotal: number, currency: string) => {
     if (!firestore || !user || !debts) return;
 
     const batch = writeBatch(firestore);
-    const settlementId = doc(collection(firestore, 'dummy')).id; // Generate a unique ID
+    const settlementId = doc(collection(firestore, 'dummy')).id;
     const settlementAmount = Math.min(iouTotal, uomeTotal);
     const settlementDate = Timestamp.now();
     
@@ -349,29 +629,6 @@ export default function DebtDashboard() {
     }
   };
 
-  const formatCurrency = (amount: number, currency: string) => new Intl.NumberFormat('es-CO', { style: 'currency', currency, minimumFractionDigits: 0 }).format(amount);
-
-  const { totalIOwe, totalOwedToMe } = useMemo(() => {
-    if (!debts) return { totalIOwe: 0, totalOwedToMe: 0 };
-    
-    const totals = debts.reduce((acc, debt) => {
-      const rate = debt.currency === 'USD' ? 4000 : debt.currency === 'EUR' ? 4500: 1;
-      const remaining = debt.amount - debt.payments.reduce((sum, p) => sum + p.amount, 0);
-
-      if (remaining <= 0) return acc;
-      
-      if (debt.type === 'iou') {
-        acc.totalIOwe += remaining * rate;
-      } else {
-        acc.totalOwedToMe += remaining * rate;
-      }
-      return acc;
-    }, { totalIOwe: 0, totalOwedToMe: 0 });
-    
-    return totals;
-  }, [debts]);
-
-
   const handleAddDebtor = (newDebtorData: Omit<Debtor, 'id' | 'userId'>) => {
     if (!debtorsRef || !user) return;
     const debtorToAdd: Omit<Debtor, 'id'> = {
@@ -429,12 +686,15 @@ export default function DebtDashboard() {
         
         try {
             const mirrorDebtorsColRef = collection(firestore, `users/${linkedUserId}/debtors`);
-            await addDoc(mirrorDebtorsColRef, mirrorContactData);
+            const docRef = await addDoc(mirrorDebtorsColRef, mirrorContactData);
             
             toast({
                 title: "¡Contacto Vinculado!",
-                description: `Se ha creado un contacto espejo exitosamente. Ahora puedes sincronizar las deudas antiguas.`,
+                description: `Se ha creado un contacto espejo exitosamente.`,
             });
+
+            await handleSyncDebts(debtorId);
+
         } catch (e: any) {
             console.error('❌ ERROR creating mirror contact:', e);
             toast({
@@ -474,10 +734,8 @@ export default function DebtDashboard() {
     const batch = writeBatch(firestore);
 
     for (const debt of privateDebtsToSync) {
-      // 1. Define reference to the new shared debt
       const newSharedDebtRef = doc(collection(firestore, 'debts_shared'));
 
-      // 2. Prepare the new shared debt data
       const newSharedDebtData: Omit<Debt, 'id'> = {
         ...debt,
         isShared: true,
@@ -485,12 +743,9 @@ export default function DebtDashboard() {
         userOneId: participants[0],
         userTwoId: participants[1],
       };
-      // `userId` is kept to know who originally created it
 
-      // 3. Add set operation for the new shared debt
       batch.set(newSharedDebtRef, newSharedDebtData);
 
-      // 4. Add delete operation for the old private debt
       const oldPrivateDebtRef = doc(firestore, 'users', user.uid, 'debts', debt.id);
       batch.delete(oldPrivateDebtRef);
     }
@@ -514,9 +769,11 @@ export default function DebtDashboard() {
 
   const filteredDebts = useMemo(() => {
     if (!debts) return [];
+    
+    const nonRejectedDebts = debts.filter(d => d.status !== 'rejected');
     const query = searchQuery.toLowerCase();
     
-    return debts.filter(debt => {
+    return nonRejectedDebts.filter(debt => {
         const matchesSearch = query === "" ||
             debt.concept.toLowerCase().includes(query) ||
             debt.debtorName.toLowerCase().includes(query) ||
@@ -531,7 +788,34 @@ export default function DebtDashboard() {
 }, [debts, searchQuery, filters]);
 
 
-  const isLoading = isLoadingDebtors || isLoadingPrivateDebts || isLoadingSharedDebts || isLoadingSettlements;
+  const isLoading = isLoadingDebtors || isLoadingPrivateDebts || isLoadingSharedDebts || isLoadingSettlements || isEnriching;
+  
+  const handleViewDebt = (debt: Debt) => {
+    setDebtToView(debt);
+  };
+
+  const { totalIOwe, totalOwedToMe } = useMemo(() => {
+    if (!debts) return { totalIOwe: 0, totalOwedToMe: 0 };
+    
+    const activeApprovedDebts = debts.filter(d => d.status !== 'pending' && d.status !== 'rejected');
+
+    const totals = activeApprovedDebts.reduce((acc, debt) => {
+      const rate = debt.currency === 'USD' ? 4000 : debt.currency === 'EUR' ? 4500: 1;
+      const remaining = debt.amount - debt.payments.reduce((sum, p) => sum + p.amount, 0);
+
+      if (remaining <= 0) return acc;
+      
+      if (debt.type === 'iou') {
+        acc.totalIOwe += remaining * rate;
+      } else {
+        acc.totalOwedToMe += remaining * rate;
+      }
+      return acc;
+    }, { totalIOwe: 0, totalOwedToMe: 0 });
+    
+    return totals;
+  }, [debts]);
+
 
   if (isUserLoading || !user) {
     return (
@@ -562,6 +846,7 @@ export default function DebtDashboard() {
         return <DebtsList
             debts={finalFilteredDebts}
             debtors={debtors || []}
+            user={user}
             onAddPayment={handleAddPayment}
             onEditDebt={handleEditDebt}
             onDeleteDebt={handleDeleteDebt}
@@ -574,15 +859,28 @@ export default function DebtDashboard() {
     return <DebtsGrid 
         debts={finalFilteredDebts}
         debtors={debtors || []}
+        user={user}
         onAddPayment={handleAddPayment} 
         onEditDebt={handleEditDebt}
         onDeleteDebt={handleDeleteDebt}
         onEditPayment={handleEditPayment}
         onDeletePayment={handleDeletePayment}
+        onApproveDebt={handleApproveDebt}
+        onRejectDebt={handleRejectDebt}
+        onConfirmDeletion={handleConfirmDeletion}
+        onCancelDeletionRequest={handleCancelDeletionRequest}
         isLoading={isLoading}
         showSettled={isSettled}
       />;
   };
+
+  const TABS_CONFIG = [
+      { value: "overview", label: "Resumen" },
+      { value: "all-debts", label: "Deudas" },
+      { value: "activity", label: "Actividad" },
+      { value: "history", label: "Historial" },
+      { value: "debtors", label: "Contactos" },
+  ];
 
 
   return (
@@ -623,12 +921,25 @@ export default function DebtDashboard() {
         </div>
         <Tabs defaultValue="overview" className="w-full" value={activeTab} onValueChange={setActiveTab}>
             <div className="flex items-center justify-between flex-wrap gap-2">
-                <TabsList>
-                    <TabsTrigger value="overview">Resumen</TabsTrigger>
-                    <TabsTrigger value="all-debts">Deudas</TabsTrigger>
-                    <TabsTrigger value="history">Historial</TabsTrigger>
-                    <TabsTrigger value="debtors">Contactos</TabsTrigger>
+                {/* Desktop Tabs */}
+                <TabsList className="hidden md:inline-flex">
+                    {TABS_CONFIG.map(tab => (
+                       <TabsTrigger key={tab.value} value={tab.value}>{tab.label}</TabsTrigger>
+                    ))}
                 </TabsList>
+                {/* Mobile Select */}
+                <div className="md:hidden w-full">
+                    <Select value={activeTab} onValueChange={setActiveTab}>
+                        <SelectTrigger>
+                            <SelectValue placeholder="Seleccionar vista..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {TABS_CONFIG.map(tab => (
+                               <SelectItem key={tab.value} value={tab.value}>{tab.label}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
                 {(activeTab === 'all-debts' || activeTab === 'history') && (
                     <div className="flex items-center gap-2">
                         <DropdownMenu>
@@ -694,6 +1005,9 @@ export default function DebtDashboard() {
             <TabsContent value="all-debts" forceMount={activeTab === 'all-debts'}>
               {renderContentForDebts(false)}
             </TabsContent>
+            <TabsContent value="activity" forceMount={activeTab === 'activity'}>
+              <ActivityFeed debts={debts} debtors={debtors || []} onViewDebt={handleViewDebt}/>
+            </TabsContent>
              <TabsContent value="history" forceMount={activeTab === 'history'}>
               {renderContentForDebts(true)}
             </TabsContent>
@@ -708,12 +1022,20 @@ export default function DebtDashboard() {
               />
             </TabsContent>
         </Tabs>
+        {debtToView && (
+            <ViewDebtDialog 
+                debt={debtToView}
+                onEditPayment={handleEditPayment}
+                onDeletePayment={handleDeletePayment}
+                open={!!debtToView}
+                onOpenChange={(open) => !open && setDebtToView(null)}
+            >
+              <div />
+            </ViewDebtDialog>
+        )}
       </main>
     </div>
   );
 }
 
-    
-    
 
-    

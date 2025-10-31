@@ -35,6 +35,8 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { Timestamp } from 'firebase/firestore';
+import { useStorage, useUser } from '@/firebase';
+import { v4 as uuidv4 } from 'uuid';
 
 const paymentFormSchema = z.object({
   amount: z.coerce.number().positive({ message: "El monto debe ser positivo." }),
@@ -54,7 +56,9 @@ interface EditPaymentDialogProps {
 export function EditPaymentDialog({ debt, payment, onEditPayment, children }: EditPaymentDialogProps) {
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
-  const [selectedFile, setSelectedFile] = useState<FileList | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const { user } = useUser();
+
 
   const form = useForm<PaymentFormValues>({
     resolver: zodResolver(paymentFormSchema),
@@ -76,26 +80,26 @@ export function EditPaymentDialog({ debt, payment, onEditPayment, children }: Ed
 
 
   async function onSubmit(data: PaymentFormValues) {
+    if (!user) return;
+
     let receiptDataUrl: string | undefined = undefined;
     
-    if (selectedFile && selectedFile.length > 0) {
-      try {
-        receiptDataUrl = await fileToDataUrl(selectedFile[0]);
-      } catch (error) {
-        toast({
-            variant: "destructive",
-            title: "Error de Imagen",
-            description: "No se pudo procesar la imagen del recibo.",
-        });
-        return;
-      }
+    if (selectedFile) {
+        const { id: toastId } = toast({ title: 'Procesando recibo...' });
+        try {
+            receiptDataUrl = await fileToDataUrl(selectedFile, 400, 600, 0.7);
+            toast({ id: toastId, title: 'Recibo procesado' });
+        } catch (error) {
+            console.error("Receipt processing error:", error);
+            toast({ id: toastId, variant: 'destructive', title: 'Error al procesar recibo', description: 'No se pudo procesar la imagen del recibo.' });
+            return;
+        }
     }
 
     const updatedPayment: Partial<Omit<Payment, 'id'>> = {
       amount: data.amount,
       date: Timestamp.fromDate(data.date),
-      ...(receiptDataUrl && { receiptUrl: receiptDataUrl }),
-      ...(!receiptDataUrl && payment.receiptUrl && { receiptUrl: payment.receiptUrl }),
+      receiptUrl: receiptDataUrl || payment.receiptUrl,
     };
     
     onEditPayment(debt.id, payment.id, updatedPayment);
@@ -183,7 +187,7 @@ export function EditPaymentDialog({ debt, payment, onEditPayment, children }: Ed
                     type="file"
                     className="pl-10"
                     accept="image/*"
-                    onChange={(e) => setSelectedFile(e.target.files)}
+                    onChange={(e) => setSelectedFile(e.target.files ? e.target.files[0] : null)}
                   />
                 </div>
               </FormControl>

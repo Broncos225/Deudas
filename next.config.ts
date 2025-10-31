@@ -2,9 +2,11 @@
 import type {NextConfig} from 'next';
 import createNextPwa from 'next-pwa';
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 const withPWA = createNextPwa({
   dest: 'public',
-  disable: process.env.NODE_ENV === 'development',
+  disable: !isProduction,
   register: true,
   skipWaiting: true,
 });

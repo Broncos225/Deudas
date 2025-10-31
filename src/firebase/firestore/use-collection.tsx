@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -106,7 +107,9 @@ export function useCollection<T = any>(
       }
     );
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+    }
   }, [memoizedTargetRefOrQuery]); // Re-run if the target query/reference changes.
 
   return { data, isLoading, error };
