@@ -174,6 +174,11 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
     if (baseDebtData.dueDate === undefined) {
       delete baseDebtData.dueDate;
     }
+    
+    // Firestore does not accept undefined values.
+    if (baseDebtData.receiptUrl === undefined) {
+      delete baseDebtData.receiptUrl;
+    }
 
     // Shared Debt Logic
     if (selectedDebtor.isAppUser && selectedDebtor.appUserId) {
@@ -510,3 +515,5 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
     </Dialog>
   );
 }
+
+    
