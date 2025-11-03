@@ -1,9 +1,10 @@
+
 /**
  * @file Firestore Security Rules
  * @description This ruleset enforces a combination of user-based ownership and shared access models.
  *
  * Data Structure:
- * - User-specific data (debtors, debts, settlements) is nested under `/users/{userId}`.
+ * - User-specific data (debtors, debts, settlements, categories) is nested under `/users/{userId}`.
  * - Shared debts are stored in the top-level `/debts_shared/{debtId}` collection.
  * - Activity logs are stored in the top-level `/activity_logs/{logId}` collection.
  *
@@ -26,44 +27,73 @@ service cloud.firestore {
     /**
      * @description Grants the user full ownership over their debtor documents.
      * Allows creating mirror contacts when linking app users.
+     * Allows any signed-in user to create a generic contact in another user's account.
      * @path /users/{userId}/debtors/{debtorId}
-     * @allow (create) User 'user_abc' can create a new debtor with `userId: "user_abc"`.
      * @allow (get, list, update, delete) User 'user_abc' can access and modify debtor 'debtor_123' they own.
+     * @allow (create) User 'user_abc' can create a new debtor with `userId: "user_abc"`.
+     * @allow (create) Allows creating a mirror contact when a user is linked to an app user.
+     * @allow (create) Allows any signed-in user to create a generic contact in another's account.
      * @deny (create) User 'user_xyz' cannot create a debtor under 'user_abc's' user ID.
      * @deny (update, delete) User 'user_xyz' cannot modify or delete a debtor owned by 'user_abc'.
-     * @principle Enforces document ownership for all operations.
+     * @principle Enforces document ownership for most operations, with exceptions for linking and generic creation.
      */
     match /users/{userId}/debtors/{debtorId} {
       allow get: if isOwner(userId);
       allow list: if isOwner(userId);
       // Original rule: allow creating own contacts
       allow create: if isOwner(userId) && request.resource.data.userId == userId;
-      // New rule: Allow creating mirror contacts. A user can create a contact in another account IF:
-      // 1. The contact has isAppUser = true
-      // 2. The contact's appUserId is the authenticated user
-      // 3. The contact's userId is the owner of the collection
+      // Allow creating mirror contacts when linking app users.
       allow create: if isSignedIn() &&
                        request.resource.data.keys().hasAll(['isAppUser', 'appUserId', 'userId']) &&
                        request.resource.data.isAppUser == true &&
                        request.resource.data.appUserId == request.auth.uid &&
                        request.resource.data.userId == userId;
+      // Allow creating generic contacts in other accounts for split expenses feature
+      allow create: if isSignedIn() &&
+                   request.resource.data.userId == userId &&
+                   request.resource.data.isAppUser == false &&
+                   debtorId.matches('generic_.*');
       allow update: if isExistingOwner(userId) && request.resource.data.userId == resource.data.userId;
       allow delete: if isExistingOwner(userId);
     }
 
     /**
-     * @description Grants the user full ownership over their debt documents.
+     * @description Grants the user full ownership over their debt categories.
+     * @path /users/{userId}/categories/{categoryId}
+     * @allow (create) User 'user_abc' can create a new category with `userId: "user_abc"`.
+     * @allow (get, list, update, delete) User 'user_abc' can access and modify categories they own.
+     * @deny (all) User 'user_xyz' cannot access categories owned by 'user_abc'.
+     * @principle Enforces strict document ownership for all operations on categories.
+     */
+    match /users/{userId}/categories/{categoryId} {
+        allow get, list, delete: if isOwner(userId);
+        allow create: if isOwner(userId) && request.resource.data.userId == userId;
+        allow update: if isExistingOwner(userId) && request.resource.data.userId == resource.data.userId;
+    }
+
+
+    /**
+     * @description Grants the user ownership over their debt documents, but allows any user
+     * to create a generic private debt in another user's account.
      * @path /users/{userId}/debts/{debtId}
-     * @allow (create) User 'user_abc' can create a new debt with `userId: "user_abc"`.
      * @allow (get, list, update, delete) User 'user_abc' can access and modify debt 'debt_123' they own.
-     * @deny (create) User 'user_xyz' cannot create a debt under 'user_abc's' user ID.
+     * @allow (create) User 'user_abc' can create a new debt with `userId: "user_abc"`.
+     * @allow (create) Any signed-in user can create a generic debt in another's account for split expenses.
      * @deny (update, delete) User 'user_xyz' cannot modify or delete a debt owned by 'user_abc'.
-     * @principle Enforces document ownership for all operations.
+     * @principle Enforces document ownership, with an exception for creating generic debts.
      */
     match /users/{userId}/debts/{debtId} {
       allow get: if isOwner(userId);
       allow list: if isOwner(userId);
+      // Original rule: el dueño puede crear sus propias deudas
       allow create: if isOwner(userId) && request.resource.data.userId == userId;
+      // New rule: any authenticated user can create a generic debt in another account
+      allow create: if isSignedIn() &&
+                   request.resource.data.userId == userId &&
+                   request.resource.data.isShared == false &&
+                   request.resource.data.debtorId is string &&
+                   request.resource.data.debtorId.matches('generic_.*') &&
+                   request.resource.data.status == 'approved';
       allow update: if isExistingOwner(userId) && request.resource.data.userId == resource.data.userId;
       allow delete: if isExistingOwner(userId);
     }
@@ -72,16 +102,18 @@ service cloud.firestore {
      * @description Enforces shared access control based on the `participants` array.
      * @path /debts_shared/{debtId}
      * @allow (get, list) User 'user_abc' can read shared debt 'shared_123' if they are in the `participants` array.
-     * @allow (create) User 'user_abc' can create a shared debt 'shared_123' if the `participants` array contains exactly two users.
+     * @allow (create) Any signed-in user can create a shared debt if it has 2 participants and is pending.
      * @allow (update, delete) User 'user_abc' can update or delete 'shared_123' if they are in the `participants` array.
      * @deny (get, list) User 'user_xyz' cannot read 'shared_123' if they are not in the `participants` array.
-     * @deny (create) User 'user_abc' cannot create a shared debt with an invalid `participants` array.
-     * @principle Uses a `participants` array for efficient shared access control.
+     * @deny (create) User 'user_abc' cannot create a shared debt that is not pending or has an invalid number of participants.
+     * @principle Uses a `participants` array for shared access control and allows creation by a third-party if the debt is pending approval.
      */
     match /debts_shared/{debtId} {
       allow get: if isSignedIn() && resource.data.participants.hasAny([request.auth.uid]);
       allow list: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.participants.size() == 2 && request.resource.data.participants.hasAny([request.auth.uid]);
+      allow create: if isSignedIn() && 
+                       request.resource.data.participants.size() == 2 &&
+                       request.resource.data.status == 'pending';
       allow update: if isSignedIn() && resource != null && resource.data.participants.hasAny([request.auth.uid]);
       allow delete: if isSignedIn() && resource != null && resource.data.participants.hasAny([request.auth.uid]);
     }
@@ -113,11 +145,13 @@ service cloud.firestore {
      */
     match /activity_logs/{logId} {
       allow get: if isSignedIn();
-      // Solo permitir listar si se filtra por participant
       allow list: if isSignedIn();
       allow create: if isSignedIn() &&
                        request.resource.data.userId == request.auth.uid &&
-                       request.resource.data.participants is list;
+                       request.resource.data.participants is list &&
+                       (!request.resource.data.keys().hasAny(['userPhotoUrl']) || 
+                        request.resource.data.userPhotoUrl == null ||
+                        request.resource.data.userPhotoUrl is string);
       allow update: if false;
       allow delete: if false;
     }

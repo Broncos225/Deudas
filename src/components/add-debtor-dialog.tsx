@@ -33,6 +33,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Switch } from './ui/switch';
 import { Separator } from './ui/separator';
 import { QrScannerDialog } from './qr-scanner';
+import { ScrollArea } from './ui/scroll-area';
 
 const debtorFormSchema = z.object({
   name: z.string().min(2, { message: "El nombre debe tener al menos 2 caracteres." }),
@@ -151,7 +152,7 @@ export function AddDebtorDialog({ onAddDebtor, onEditDebtor, debtorToEdit, child
     <>
     <Dialog open={open} onOpenChange={setOpen}>
       {children && <DialogTrigger asChild>{children}</DialogTrigger>}
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>{isEditMode ? "Editar Contacto" : "Agregar Nuevo Contacto"}</DialogTitle>
           <DialogDescription>
@@ -162,159 +163,162 @@ export function AddDebtorDialog({ onAddDebtor, onEditDebtor, debtorToEdit, child
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
-             <FormField
-              control={form.control}
-              name="type"
-              render={({ field }) => (
-                <FormItem className="space-y-3">
-                  <FormLabel>Tipo de Contacto</FormLabel>
-                  <FormControl>
-                    <RadioGroup
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                      className="flex space-x-4"
-                    >
-                      <FormItem className="flex items-center space-x-2 space-y-0">
-                        <FormControl>
-                          <RadioGroupItem value="person" />
-                        </FormControl>
-                        <FormLabel className="font-normal">Persona</FormLabel>
-                      </FormItem>
-                      <FormItem className="flex items-center space-x-2 space-y-0">
-                        <FormControl>
-                          <RadioGroupItem value="entity" />
-                        </FormControl>
-                        <FormLabel className="font-normal">Entidad</FormLabel>
-                      </FormItem>
-                    </RadioGroup>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Nombre</FormLabel>
-                  <FormControl>
-                    <Input placeholder="John Doe" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="contact"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Contacto (Opcional)</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Email, teléfono, etc." {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            
-            <Separator />
-
-            <div>
-              <h3 className="text-sm font-medium mb-2">Información de Pago</h3>
-              <div className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="paymentMethod"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Método de Pago Preferido</FormLabel>
-                       <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecciona un método" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="Efectivo">Efectivo</SelectItem>
-                          <SelectItem value="Transferencia">Transferencia</SelectItem>
-                          <SelectItem value="Tarjeta">Tarjeta</SelectItem>
-                          <SelectItem value="Otro">Otro</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="paymentInfo"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Detalles de Pago (Opcional)</FormLabel>
-                      <FormControl>
-                        <Input placeholder="N° de cuenta, Nequi, etc." {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </div>
-            
-            <Separator />
-
-            <div>
-               <h3 className="text-sm font-medium mb-3">Vinculación con la App</h3>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="flex-1 min-h-0 flex flex-col">
+            <ScrollArea className="h-[60vh] pr-6">
+              <div className="space-y-4 py-4">
                 <FormField
                 control={form.control}
-                name="isAppUser"
+                name="type"
                 render={({ field }) => (
-                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
-                        <div className="space-y-0.5">
-                            <FormLabel>¿Es un usuario de la app?</FormLabel>
-                            <FormDescription className="text-xs">
-                                Activa esto para compartir deudas.
-                            </FormDescription>
-                        </div>
-                        <FormControl>
-                            <Switch
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                            />
-                        </FormControl>
-                    </FormItem>
-                )}
-                />
-                {isAppUser && (
-                    <FormField
-                    control={form.control}
-                    name="appUserId"
-                    render={({ field }) => (
-                        <FormItem className="mt-4">
-                        <FormLabel>Código de Usuario</FormLabel>
-                        <div className="flex items-center gap-2">
-                            <FormControl>
-                                <Input placeholder="Pega o escanea el código" {...field} />
-                            </FormControl>
-                            <Button type="button" variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
-                                <Camera className="h-4 w-4" />
-                                <span className="sr-only">Escanear código QR</span>
-                            </Button>
-                        </div>
-                        <FormDescription>
-                          Pide a tu contacto que comparta su código desde su perfil.
-                        </FormDescription>
-                        <FormMessage />
+                  <FormItem className="space-y-3">
+                    <FormLabel>Tipo de Contacto</FormLabel>
+                    <FormControl>
+                      <RadioGroup
+                        onValueChange={field.onChange}
+                        defaultValue={field.value}
+                        className="flex space-x-4"
+                      >
+                        <FormItem className="flex items-center space-x-2 space-y-0">
+                          <FormControl>
+                            <RadioGroupItem value="person" />
+                          </FormControl>
+                          <FormLabel className="font-normal">Persona</FormLabel>
                         </FormItem>
-                    )}
-                    />
+                        <FormItem className="flex items-center space-x-2 space-y-0">
+                          <FormControl>
+                            <RadioGroupItem value="entity" />
+                          </FormControl>
+                          <FormLabel className="font-normal">Entidad</FormLabel>
+                        </FormItem>
+                      </RadioGroup>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
                 )}
-            </div>
+              />
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Nombre</FormLabel>
+                    <FormControl>
+                      <Input placeholder="John Doe" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="contact"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Contacto (Opcional)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Email, teléfono, etc." {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <Separator />
 
-            <DialogFooter>
+              <div>
+                <h3 className="text-sm font-medium mb-2">Información de Pago</h3>
+                <div className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="paymentMethod"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Método de Pago Preferido</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecciona un método" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="Efectivo">Efectivo</SelectItem>
+                            <SelectItem value="Transferencia">Transferencia</SelectItem>
+                            <SelectItem value="Tarjeta">Tarjeta</SelectItem>
+                            <SelectItem value="Otro">Otro</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="paymentInfo"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Detalles de Pago (Opcional)</FormLabel>
+                        <FormControl>
+                          <Input placeholder="N° de cuenta, Nequi, etc." {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+              
+              <Separator />
+
+              <div>
+                <h3 className="text-sm font-medium mb-3">Vinculación con la App</h3>
+                  <FormField
+                  control={form.control}
+                  name="isAppUser"
+                  render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                          <div className="space-y-0.5">
+                              <FormLabel>¿Es un usuario de la app?</FormLabel>
+                              <FormDescription className="text-xs">
+                                  Activa esto para compartir deudas.
+                              </FormDescription>
+                          </div>
+                          <FormControl>
+                              <Switch
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                              />
+                          </FormControl>
+                      </FormItem>
+                  )}
+                  />
+                  {isAppUser && (
+                      <FormField
+                      control={form.control}
+                      name="appUserId"
+                      render={({ field }) => (
+                          <FormItem className="mt-4">
+                          <FormLabel>Código de Usuario</FormLabel>
+                          <div className="flex items-center gap-2">
+                              <FormControl>
+                                  <Input placeholder="Pega o escanea el código" {...field} />
+                              </FormControl>
+                              <Button type="button" variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
+                                  <Camera className="h-4 w-4" />
+                                  <span className="sr-only">Escanear código QR</span>
+                              </Button>
+                          </div>
+                          <FormDescription>
+                            Pide a tu contacto que comparta su código desde su perfil.
+                          </FormDescription>
+                          <FormMessage />
+                          </FormItem>
+                      )}
+                      />
+                  )}
+              </div>
+            </div>
+            </ScrollArea>
+            <DialogFooter className="pt-4">
               <Button type="submit" className="bg-accent hover:bg-accent/90 text-accent-foreground">
                 {isEditMode ? "Guardar Cambios" : "Crear Contacto"}
               </Button>

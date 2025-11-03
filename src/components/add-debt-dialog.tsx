@@ -32,7 +32,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { FileImage, PlusCircle, Calendar as CalendarIcon, Trash2, ArrowDownLeft, ArrowUpRight } from "lucide-react";
-import type { Debt, Debtor } from "@/lib/types";
+import type { Debt, Debtor, Category } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { fileToDataUrl } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
@@ -52,6 +52,7 @@ const debtFormSchema = z.object({
   amount: z.coerce.number().positive({ message: "El monto debe ser positivo." }),
   currency: z.string({ required_error: "Se requiere una divisa." }),
   type: z.enum(["iou", "uome"], { required_error: "Debes seleccionar un tipo de deuda." }),
+  categoryId: z.string().optional(),
   createdAt: z.date({ required_error: "La fecha de creación es requerida."}),
   dueDate: z.date().optional(),
   items: z.array(z.object({
@@ -64,13 +65,14 @@ type DebtFormValues = z.infer<typeof debtFormSchema>;
 
 interface AddDebtDialogProps {
   debtors: Debtor[];
+  categories: Category[];
   debtToEdit?: Debt;
   onAddDebt?: (newDebt: Omit<Debt, 'id' | 'payments' | 'debtorName'>) => void;
   onEditDebt?: (debtId: string, updatedDebt: Partial<Omit<Debt, 'id'>>, debtorName: string) => void;
   children?: React.ReactNode;
 }
 
-export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, children }: AddDebtDialogProps) {
+export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debtToEdit, children }: AddDebtDialogProps) {
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
   const { user } = useUser();
@@ -87,6 +89,7 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
       createdAt: new Date(),
       items: [],
       dueDate: undefined,
+      categoryId: "none",
     }
   });
 
@@ -115,6 +118,7 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
           amount: debtToEdit.amount,
           currency: debtToEdit.currency,
           type: debtToEdit.type,
+          categoryId: debtToEdit.categoryId || 'none',
           createdAt: debtToEdit.createdAt.toDate(),
           dueDate: debtToEdit.dueDate ? debtToEdit.dueDate.toDate() : undefined,
           items: debtToEdit.items || [],
@@ -129,6 +133,7 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
           createdAt: new Date(),
           dueDate: undefined,
           items: [],
+          categoryId: 'none',
         });
       }
     }
@@ -175,10 +180,14 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
       delete baseDebtData.dueDate;
     }
     
-    // Firestore does not accept undefined values.
     if (baseDebtData.receiptUrl === undefined) {
       delete baseDebtData.receiptUrl;
     }
+    
+    if (baseDebtData.categoryId === undefined || baseDebtData.categoryId === 'none') {
+        delete baseDebtData.categoryId;
+    }
+
 
     // Shared Debt Logic
     if (selectedDebtor.isAppUser && selectedDebtor.appUserId) {
@@ -236,7 +245,7 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>{isEditMode ? "Editar Deuda" : "Agregar Nueva Deuda"}</DialogTitle>
           <DialogDescription>
@@ -247,264 +256,291 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="flex-1 min-h-0 flex flex-col">
             <ScrollArea className="h-[60vh] pr-6">
-            <div className="space-y-4 py-4">
-            <FormField
-              control={form.control}
-              name="type"
-              render={({ field }) => (
-                <FormItem className="space-y-3">
-                  <FormLabel>Tipo de deuda</FormLabel>
-                  <FormControl>
-                    <ToggleGroup
-                      type="single"
-                      variant="outline"
-                      className="grid grid-cols-2"
-                      value={field.value}
-                      onValueChange={field.onChange}
-                    >
-                      <ToggleGroupItem value="iou" className="h-12 flex-col gap-1 data-[state=on]:bg-red-500/10 data-[state=on]:border-red-500/50 data-[state=on]:text-red-700 dark:data-[state=on]:text-red-300">
-                        <ArrowDownLeft className="h-4 w-4" />
-                        <span className="text-xs">Tú debes</span>
-                      </ToggleGroupItem>
-                      <ToggleGroupItem value="uome" className="h-12 flex-col gap-1 data-[state=on]:bg-green-500/10 data-[state=on]:border-green-500/50 data-[state=on]:text-green-700 dark:data-[state=on]:text-green-300">
-                        <ArrowUpRight className="h-4 w-4" />
-                        <span className="text-xs">Te deben</span>
-                      </ToggleGroupItem>
-                    </ToggleGroup>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="debtorId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Persona</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecciona una persona" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {debtors.map(debtor => (
-                        <SelectItem key={debtor.id} value={debtor.id}>{debtor.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="concept"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Concepto</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Ej: Almuerzo, Préstamo" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            
-            <div>
-              <FormLabel>Ítems de la Deuda (Opcional)</FormLabel>
-              <div className="space-y-2 mt-2">
-                {fields.map((field, index) => (
-                  <div key={field.id} className="flex items-center gap-2">
-                    <FormField
-                      control={form.control}
-                      name={`items.${index}.name`}
-                      render={({ field }) => (
-                        <FormItem className="flex-grow">
-                          <FormControl>
-                            <Input {...field} placeholder="Nombre del ítem" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name={`items.${index}.value`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <Input {...field} type="number" placeholder="Valor" className="w-28" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-2"
-                onClick={() => append({ name: '', value: 0 })}
-              >
-                Agregar Ítem
-              </Button>
-            </div>
-
-
-            <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-4 py-4">
                 <FormField
-                control={form.control}
-                name="amount"
-                render={({ field }) => (
-                    <FormItem className="col-span-2">
-                    <FormLabel>Monto</FormLabel>
-                    <FormControl>
-                        <Input type="number" placeholder="100.00" {...field} disabled={hasItems} />
-                    </FormControl>
-                    <FormMessage />
+                  control={form.control}
+                  name="type"
+                  render={({ field }) => (
+                    <FormItem className="space-y-3">
+                      <FormLabel>Tipo de deuda</FormLabel>
+                      <FormControl>
+                        <ToggleGroup
+                          type="single"
+                          variant="outline"
+                          className="grid grid-cols-2"
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <ToggleGroupItem value="iou" className="h-12 flex-col gap-1 data-[state=on]:bg-red-500/10 data-[state=on]:border-red-500/50 data-[state=on]:text-red-700 dark:data-[state=on]:text-red-300">
+                            <ArrowDownLeft className="h-4 w-4" />
+                            <span className="text-xs">Tú debes</span>
+                          </ToggleGroupItem>
+                          <ToggleGroupItem value="uome" className="h-12 flex-col gap-1 data-[state=on]:bg-green-500/10 data-[state=on]:border-green-500/50 data-[state=on]:text-green-700 dark:data-[state=on]:text-green-300">
+                            <ArrowUpRight className="h-4 w-4" />
+                            <span className="text-xs">Te deben</span>
+                          </ToggleGroupItem>
+                        </ToggleGroup>
+                      </FormControl>
+                      <FormMessage />
                     </FormItem>
-                )}
+                  )}
                 />
                 <FormField
-                control={form.control}
-                name="currency"
-                render={({ field }) => (
+                  control={form.control}
+                  name="debtorId"
+                  render={({ field }) => (
                     <FormItem>
-                    <FormLabel>Divisa</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormLabel>Persona</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
-                        <SelectTrigger>
-                            <SelectValue placeholder="Divisa" />
-                        </SelectTrigger>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecciona una persona" />
+                          </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                        <SelectItem value="COP">COP</SelectItem>
-                        <SelectItem value="USD">USD</SelectItem>
-                        <SelectItem value="EUR">EUR</SelectItem>
+                          {debtors.map(debtor => (
+                            <SelectItem key={debtor.id} value={debtor.id}>{debtor.name}</SelectItem>
+                          ))}
                         </SelectContent>
-                    </Select>
-                    <FormMessage />
+                      </Select>
+                      <FormMessage />
                     </FormItem>
-                )}
+                  )}
                 />
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="createdAt"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel>Fecha de Creación</FormLabel>
-                    <Popover>
-                      <PopoverTrigger asChild>
+                <FormField
+                  control={form.control}
+                  name="concept"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Concepto</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Ej: Almuerzo, Préstamo" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="categoryId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Categoría (Opcional)</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value} defaultValue="none">
                         <FormControl>
-                          <Button
-                            variant={"outline"}
-                            className={cn(
-                              "pl-3 text-left font-normal",
-                              !field.value && "text-muted-foreground"
-                            )}
-                          >
-                            {field.value ? (
-                              format(field.value, "PPP", { locale: es })
-                            ) : (
-                              <span>Elige una fecha</span>
-                            )}
-                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                          </Button>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecciona una categoría" />
+                          </SelectTrigger>
                         </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={field.value}
-                          onSelect={field.onChange}
-                          disabled={(date) =>
-                            date > new Date() || date < new Date("1900-01-01")
-                          }
-                          initialFocus
+                        <SelectContent>
+                          <SelectItem value="none">Sin Categoría</SelectItem>
+                          {categories.map(category => (
+                            <SelectItem key={category.id} value={category.id}>
+                              <div className="flex items-center gap-2">
+                                <span className={cn("w-2 h-2 rounded-full", category.color)}></span>
+                                {category.name}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <div>
+                  <FormLabel>Ítems de la Deuda (Opcional)</FormLabel>
+                  <div className="space-y-2 mt-2">
+                    {fields.map((field, index) => (
+                      <div key={field.id} className="flex items-center gap-2">
+                        <FormField
+                          control={form.control}
+                          name={`items.${index}.name`}
+                          render={({ field }) => (
+                            <FormItem className="flex-grow">
+                              <FormControl>
+                                <Input {...field} placeholder="Nombre del ítem" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
                         />
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-               <FormField
-                control={form.control}
-                name="dueDate"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel>Fecha de Vencimiento (Opcional)</FormLabel>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant={"outline"}
-                            className={cn(
-                              "pl-3 text-left font-normal",
-                              !field.value && "text-muted-foreground"
-                            )}
-                          >
-                            {field.value ? (
-                              format(field.value, "PPP", { locale: es })
-                            ) : (
-                              <span>Elige una fecha</span>
-                            )}
-                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={field.value}
-                          onSelect={field.onChange}
-                          disabled={(date) =>
-                            date < new Date()
-                          }
-                          initialFocus
+                        <FormField
+                          control={form.control}
+                          name={`items.${index}.value`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormControl>
+                                <Input {...field} type="number" placeholder="Valor" className="w-28" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
                         />
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+                        <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => append({ name: '', value: 0 })}
+                  >
+                    Agregar Ítem
+                  </Button>
+                </div>
 
 
-            <FormItem>
-              <FormLabel>Factura / Recibo (Opcional)</FormLabel>
-              <FormControl>
-                <div className="relative">
-                  <FileImage className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                  <Input 
-                    type="file" 
-                    className="pl-10" 
-                    accept="image/*"
-                    onChange={(e) => setSelectedFile(e.target.files ? e.target.files[0] : null)}
+                <div className="grid grid-cols-3 gap-2">
+                    <FormField
+                    control={form.control}
+                    name="amount"
+                    render={({ field }) => (
+                        <FormItem className="col-span-2">
+                        <FormLabel>Monto</FormLabel>
+                        <FormControl>
+                            <Input type="number" placeholder="100.00" {...field} disabled={hasItems} />
+                        </FormControl>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
+                    <FormField
+                    control={form.control}
+                    name="currency"
+                    render={({ field }) => (
+                        <FormItem>
+                        <FormLabel>Divisa</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Divisa" />
+                            </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                            <SelectItem value="COP">COP</SelectItem>
+                            <SelectItem value="USD">USD</SelectItem>
+                            <SelectItem value="EUR">EUR</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="createdAt"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel>Fecha de Creación</FormLabel>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                variant={"outline"}
+                                className={cn(
+                                  "pl-3 text-left font-normal",
+                                  !field.value && "text-muted-foreground"
+                                )}
+                              >
+                                {field.value ? (
+                                  format(field.value, "PPP", { locale: es })
+                                ) : (
+                                  <span>Elige una fecha</span>
+                                )}
+                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={field.value}
+                              onSelect={field.onChange}
+                              disabled={(date) =>
+                                date > new Date() || date < new Date("1900-01-01")
+                              }
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                   <FormField
+                    control={form.control}
+                    name="dueDate"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel>Fecha de Vencimiento (Opcional)</FormLabel>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                variant={"outline"}
+                                className={cn(
+                                  "pl-3 text-left font-normal",
+                                  !field.value && "text-muted-foreground"
+                                )}
+                              >
+                                {field.value ? (
+                                  format(field.value, "PPP", { locale: es })
+                                ) : (
+                                  <span>Elige una fecha</span>
+                                )}
+                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={field.value}
+                              onSelect={field.onChange}
+                              disabled={(date) =>
+                                date < new Date()
+                              }
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <FormMessage />
+                      </FormItem>
+                    )}
                   />
                 </div>
-              </FormControl>
-              <FormMessage />
-            </FormItem>
 
 
-            </div>
+                <FormItem>
+                  <FormLabel>Factura / Recibo (Opcional)</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <FileImage className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                      <Input 
+                        type="file" 
+                        className="pl-10" 
+                        accept="image/*"
+                        onChange={(e) => setSelectedFile(e.target.files ? e.target.files[0] : null)}
+                      />
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              </div>
             </ScrollArea>
-            <DialogFooter className="pt-4 pr-6">
+            <DialogFooter className="pt-4 mt-auto border-t">
               <Button type="submit" className="bg-accent hover:bg-accent/90 text-accent-foreground">
                 {isEditMode ? "Guardar Cambios" : "Crear Deuda"}
               </Button>
@@ -515,5 +551,3 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
     </Dialog>
   );
 }
-
-    

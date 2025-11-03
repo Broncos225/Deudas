@@ -2,10 +2,10 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import type { Debt, Debtor, Payment } from "@/lib/types";
+import type { Debt, Debtor, Payment, Category } from "@/lib/types";
 import { format, isValid, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
-import { MoreHorizontal, Edit, Trash2, ArrowDownLeft, ArrowUpRight, Wallet, Loader, CheckCircle, Bell, Info, ThumbsUp, ThumbsDown, AlertTriangle, XCircle, ShieldQuestion } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, ArrowDownLeft, ArrowUpRight, Wallet, Loader, CheckCircle, Bell, Info, ThumbsUp, ThumbsDown, AlertTriangle, XCircle, ShieldQuestion, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -45,11 +45,13 @@ import { DeleteDebtAlertDialog } from './delete-debt-alert-dialog';
 import { User } from 'firebase/auth';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { cn } from '@/lib/utils';
+import { Badge } from './ui/badge';
 
 
 interface DebtsGridProps {
   debts: Debt[];
   debtors: Debtor[];
+  categories: Category[];
   user: User | null;
   onAddPayment: (debtId: string, newPayment: Omit<Payment, 'id'>) => void;
   onEditDebt: (debtId: string, updatedDebt: Partial<Omit<Debt, 'id'>>, debtorName: string) => void;
@@ -130,6 +132,7 @@ const RejectDebtDialog = ({ onConfirm }: { onConfirm: (reason: string) => void }
 export function DebtsGrid({ 
     debts, 
     debtors,
+    categories,
     user,
     onAddPayment, 
     onEditDebt, 
@@ -153,6 +156,11 @@ export function DebtsGrid({
       currency: currency,
       minimumFractionDigits: 0,
     }).format(amount);
+    
+  const getCategory = (categoryId?: string) => {
+    if (!categoryId) return null;
+    return categories.find(c => c.id === categoryId);
+  }
 
   if (isLoading) {
     return (
@@ -195,6 +203,8 @@ export function DebtsGrid({
 
         const isDeletionRequested = debt.isShared && debt.deletionStatus === 'requested';
         const canConfirmDeletion = isDeletionRequested && debt.deletionRequestedBy !== user?.uid;
+
+        const category = getCategory(debt.categoryId);
 
         const getStatusBadge = () => {
             if (isDeletionRequested) return { text: "Eliminación Solicitada", className: "bg-orange-100 text-orange-700", Icon: ShieldQuestion };
@@ -254,6 +264,7 @@ export function DebtsGrid({
                             <DropdownMenuLabel>Acciones</DropdownMenuLabel>
                              <ViewDebtDialog 
                                 debt={debt} 
+                                categories={categories}
                                 onEditPayment={onEditPayment}
                                 onDeletePayment={onDeletePayment}
                              >
@@ -262,7 +273,7 @@ export function DebtsGrid({
                               </DropdownMenuItem>
                             </ViewDebtDialog>
                             {(isCreator && !isPaid && !isDeletionRequested) && (
-                                <AddDebtDialog debtToEdit={debt} debtors={debtors} onEditDebt={onEditDebt}>
+                                <AddDebtDialog debtToEdit={debt} debtors={debtors} categories={categories} onEditDebt={onEditDebt}>
                                     <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="gap-2">
                                         <Edit className="h-4 w-4" /> Editar
                                     </DropdownMenuItem>
@@ -294,10 +305,20 @@ export function DebtsGrid({
                 </div>
               </div>
             </CardContent>
-            <CardFooter className="p-4 pt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+            <CardFooter className="p-4 pt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                <div className="flex-grow min-w-0">
+                    {category ? (
+                        <Badge variant="outline" className="flex items-center gap-1.5 truncate">
+                            <span className={cn("w-2 h-2 rounded-full", category.color)}></span>
+                            <span className="truncate">{category.name}</span>
+                        </Badge>
+                    ) : (
+                        <div className="h-5"></div>
+                    )}
+                </div>
                 {isApproved && !isPaid && !isDeletionRequested && (
                   <AddPaymentDialog debt={debt} onAddPayment={onAddPayment}>
-                    <Button variant="outline" size="sm" className="w-full gap-2">
+                    <Button variant="outline" size="sm" className="w-full sm:w-auto gap-2">
                       <Wallet className="h-4 w-4" /> Añadir Pago
                     </Button>
                   </AddPaymentDialog>
@@ -363,7 +384,7 @@ export function DebtsGrid({
                     </Button>
                   </div>
                 )}
-                <div className="text-xs text-muted-foreground text-left flex-shrink-0 whitespace-nowrap">
+                <div className="text-xs text-muted-foreground text-left w-full flex-shrink-0 whitespace-nowrap">
                     Creada el <ClientFormattedDate date={debt.createdAt} />
                 </div>
                 {isRejected && debt.rejectionReason && (
@@ -382,7 +403,7 @@ export function DebtsGrid({
                     </TooltipProvider>
                 )}
                 {debt.dueDate && !isPaid && !isRejected && (
-                    <div className="text-xs text-muted-foreground text-right flex-shrink-0 whitespace-nowrap flex items-center gap-1">
+                    <div className="text-xs text-muted-foreground text-right w-full flex-shrink-0 whitespace-nowrap flex items-center justify-end gap-1">
                         <Bell className="h-3 w-3" />
                         <ClientFormattedDate date={debt.dueDate} prefix="Vence el "/>
                     </div>

@@ -12,7 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
-import type { Debt, Payment } from '@/lib/types';
+import type { Debt, Payment, Category } from '@/lib/types';
 import { format, isValid, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { ScrollArea } from './ui/scroll-area';
@@ -24,10 +24,12 @@ import { DeletePaymentAlertDialog } from './delete-payment-alert-dialog';
 import { EditPaymentDialog } from './edit-payment-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { useUser } from '@/firebase';
+import { cn } from '@/lib/utils';
 
 
 interface ViewDebtDialogProps {
   debt: Debt;
+  categories: Category[];
   children?: React.ReactNode;
   onEditPayment: (debtId: string, paymentId: string, updatedPayment: Partial<Omit<Payment, 'id'>>) => void;
   onDeletePayment: (debtId: string, paymentId: string) => void;
@@ -90,13 +92,20 @@ const ImagePreviewDialog = ({ imageUrl, onOpenChange }: { imageUrl: string | nul
   };
 
 
-export function ViewDebtDialog({ debt, children, onEditPayment, onDeletePayment, open: controlledOpen, onOpenChange: setControlledOpen }: ViewDebtDialogProps) {
+export function ViewDebtDialog({ debt, categories, children, onEditPayment, onDeletePayment, open: controlledOpen, onOpenChange: setControlledOpen }: ViewDebtDialogProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = setControlledOpen ?? setInternalOpen;
   const [activeReceipt, setActiveReceipt] = useState<{url: string, title: string} | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const { user } = useUser();
+
+  const getCategory = (categoryId?: string) => {
+    if (!categoryId || !categories) return null;
+    return categories.find(c => c.id === categoryId);
+  };
+  
+  const category = getCategory(debt.categoryId);
 
   useEffect(() => {
     if (open) {
@@ -121,13 +130,19 @@ export function ViewDebtDialog({ debt, children, onEditPayment, onDeletePayment,
       <DialogContent className="sm:max-w-2xl grid-rows-[auto,1fr] max-h-[90vh]">
           <DialogHeader>
           <DialogTitle>Detalles de la Deuda: {debt.debtorName}</DialogTitle>
-          <DialogDescription className="flex items-center gap-4">
+          <DialogDescription className="flex items-center gap-4 flex-wrap">
               <span>{debt.concept} - Creada el <ClientFormattedDate date={debt.createdAt} formatString="PPP" /></span>
               {debt.dueDate && (
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
                   <Bell className="h-3 w-3" />
                   Vence el <ClientFormattedDate date={debt.dueDate} formatString="PPP" />
               </span>
+              )}
+               {category && (
+                <span className="flex items-center gap-1.5 text-xs font-semibold py-1 px-2.5 rounded-full" style={{ backgroundColor: `${category.color}20`, color: category.color}}>
+                    <span className={cn("w-2 h-2 rounded-full", category.color)}></span>
+                    {category.name}
+                </span>
               )}
           </DialogDescription>
           </DialogHeader>

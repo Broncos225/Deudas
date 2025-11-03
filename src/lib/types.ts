@@ -31,6 +31,14 @@ export interface Debtor {
   appUserPhotoUrl?: string; // Denormalized photo URL of the linked user
 }
 
+export interface Category {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  userId: string;
+}
+
 export interface Debt {
   id: string;
   debtorId: string;
@@ -38,6 +46,7 @@ export interface Debt {
   amount: number;
   currency: string;
   concept: string;
+  categoryId?: string; // New field for category
   items?: Item[]; // Optional array for detailed items
   type: 'iou' | 'uome'; // iou: I owe you (Tú debes), uome: You owe me (Te deben)
   createdAt: Timestamp;
@@ -52,6 +61,7 @@ export interface Debt {
   isSettled?: boolean; // No longer used for logic, but for historical tracking if needed
   settlementId?: string; // Which settlement it was part of
   creatorId?: string; // UID of the user who created the shared debt
+  originalDebtor?: string; // Name of the person who originally owed the money in a 3-way split
   // Approval system fields
   status?: 'pending' | 'approved' | 'rejected';
   approvedBy?: string[];
@@ -76,6 +86,7 @@ export interface ActivityLog {
   debtId: string;
   userId: string;
   userName: string;
+  userPhotoUrl?: string;
   message: string;
   timestamp: Timestamp;
   participants: string[];

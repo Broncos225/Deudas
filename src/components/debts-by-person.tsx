@@ -45,6 +45,10 @@ interface DebtsByPersonProps {
   onDeletePayment: (debtId: string, paymentId: string) => void;
   onSettleDebts: (debtorId: string, iouTotal: number, uomeTotal: number, currency: string) => void;
   onReverseSettlement: (settlement: Settlement) => void;
+  onApproveDebt: (debtId: string) => void;
+  onRejectDebt: (debtId: string, reason: string) => void;
+  onConfirmDeletion: (debtId: string) => void;
+  onCancelDeletionRequest: (debtId: string) => void;
   isLoading: boolean;
 }
 
@@ -60,6 +64,10 @@ export function DebtsByPerson({
     onDeletePayment, 
     onSettleDebts,
     onReverseSettlement,
+    onApproveDebt,
+    onRejectDebt,
+    onConfirmDeletion,
+    onCancelDeletionRequest,
     isLoading
 }: DebtsByPersonProps) {
 
@@ -79,11 +87,12 @@ export function DebtsByPerson({
   const debtsGroupedByPerson = useMemo(() => {
     if (!debtors || !debts) return [];
 
-    const activeDebts = debts.filter(d => (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) > 0.01);
+    const nonRejectedDebts = debts.filter(d => d.status !== 'rejected');
+    const activeDebts = nonRejectedDebts.filter(d => (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) > 0.01);
 
     return debtors.map(debtor => {
       const personDebts = activeDebts.filter(d => d.debtorId === debtor.id);
-      const allPersonDebts = debts.filter(d => d.debtorId === debtor.id);
+      const allPersonDebts = debts.filter(d => d.debtorId === debtor.id && d.status !== 'rejected');
       const personSettlements = settlements.filter(s => s.debtorId === debtor.id);
       
       const totals = personDebts.reduce((acc, debt) => {
@@ -226,7 +235,7 @@ export function DebtsByPerson({
         <CardContent>
             {debtsGroupedByPerson.length > 0 ? (
                 <Accordion type="multiple" className="w-full">
-                {debtsGroupedByPerson.map(({ id, name, debts, allDebts, settlements, totals }) => {
+                {debtsGroupedByPerson.map(({ id, name, debts: personDebts, allDebts, settlements, totals }) => {
                     const iouCurrencies = Object.keys(totals.iou);
                     const uomeCurrencies = Object.keys(totals.uome);
                     const canSettle = iouCurrencies.length === 1 && uomeCurrencies.length === 1 && iouCurrencies[0] === uomeCurrencies[0] && totals.iou[iouCurrencies[0]] > 0 && totals.uome[uomeCurrencies[0]] > 0;
@@ -330,13 +339,18 @@ export function DebtsByPerson({
                             )}
                             <div className="px-4 pb-4">
                                 <DebtsGrid
-                                    debts={debts}
+                                    debts={personDebts}
                                     debtors={debtors}
+                                    user={user}
                                     onAddPayment={onAddPayment}
                                     onEditDebt={onEditDebt}
                                     onDeleteDebt={onDeleteDebt}
                                     onEditPayment={onEditPayment}
                                     onDeletePayment={onDeletePayment}
+                                    onApproveDebt={onApproveDebt}
+                                    onRejectDebt={onRejectDebt}
+                                    onConfirmDeletion={onConfirmDeletion}
+                                    onCancelDeletionRequest={onCancelDeletionRequest}
                                     isLoading={isLoading}
                                     showSettled={false}
                                 />
@@ -355,5 +369,3 @@ export function DebtsByPerson({
     </Card>
   );
 }
-
-    

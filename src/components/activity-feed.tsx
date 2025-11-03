@@ -43,18 +43,15 @@ export function ActivityFeed({ debts, debtors, onViewDebt }: ActivityFeedProps) 
         return [...activityLogs].sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis());
     }, [activityLogs]);
     
-    // Create a map from userId to photoURL for all participants
     const userAvatars = useMemo(() => {
         const avatarMap = new Map<string, string | null>();
         if (user && user.photoURL) {
             avatarMap.set(user.uid, user.photoURL);
         }
-        // This is a proxy to get other users' data. We look through debtors linked to app users.
+        
         debtors.forEach(debtor => {
-            if (debtor.isAppUser && debtor.appUserId) {
-                // This is a weak spot: we don't have other users' photoURLs directly.
-                // For this app, we'll assume we can't get them and will rely on the fallback.
-                // A more complex app would fetch user profiles.
+            if (debtor.isAppUser && debtor.appUserId && debtor.appUserPhotoUrl) {
+                 avatarMap.set(debtor.appUserId, debtor.appUserPhotoUrl);
             }
         });
         return avatarMap;
@@ -99,7 +96,7 @@ export function ActivityFeed({ debts, debtors, onViewDebt }: ActivityFeedProps) 
                     const debt = debts?.find(d => d.id === log.debtId);
                     const canViewDebt = !!debt;
                     
-                    const logUserAvatar = userAvatars.get(log.userId);
+                    const logUserAvatar = log.userPhotoUrl || userAvatars.get(log.userId) || `https://avatar.vercel.sh/${log.userId}.png`;
 
 
                     return (
@@ -124,7 +121,7 @@ export function ActivityFeed({ debts, debtors, onViewDebt }: ActivityFeedProps) 
                              }}
                         >
                             <Avatar>
-                                <AvatarImage src={logUserAvatar || `https://avatar.vercel.sh/${log.userId}.png`} alt={log.userName} />
+                                <AvatarImage src={logUserAvatar} alt={log.userName} />
                                 <AvatarFallback>{getInitials(log.userName)}</AvatarFallback>
                             </Avatar>
                             <div className="flex-1">
@@ -147,6 +144,7 @@ export function ActivityFeed({ debts, debtors, onViewDebt }: ActivityFeedProps) 
                                                 .replace(/^solicitó/, 'solicitaste')
                                                 .replace(/^confirmó/, 'confirmaste')
                                                 .replace(/^aprobó/, 'aprobaste')
+                                                .replace(/^generó/, 'generaste')
                                                 .replace(/ y activó/, ' y activaste')
                                             }
                                         </>

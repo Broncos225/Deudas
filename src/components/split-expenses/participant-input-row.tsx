@@ -14,6 +14,9 @@ interface Participant {
   amountPaid: number;
   percentageToPay?: number;
   fixedAmountToPay?: number;
+  isDebtor: boolean;
+  isCurrentUser: boolean;
+  debtorId?: string;
 }
 
 interface ParticipantInputRowProps {
@@ -63,6 +66,7 @@ const ParticipantInputRowComponent = ({ participant, onUpdate, onRemove, index }
           value={participant.name}
           onChange={(e) => onUpdate({ name: e.target.value })}
           className="h-9 text-sm"
+          disabled={participant.isDebtor}
         />
       </div>
       <div className="w-32 space-y-1">
@@ -100,7 +104,7 @@ const ParticipantInputRowComponent = ({ participant, onUpdate, onRemove, index }
             </span>
         </div>
       </div>
-      <Button onClick={onRemove} variant="ghost" size="icon" className="h-9 w-9 text-destructive hover:text-destructive flex-shrink-0">
+      <Button onClick={onRemove} variant="ghost" size="icon" className="h-9 w-9 text-destructive hover:text-destructive flex-shrink-0" disabled={participant.isCurrentUser}>
         <Trash2 className="h-4 w-4" />
          <span className="sr-only">Eliminar {participant.name}</span>
       </Button>
@@ -109,3 +113,5 @@ const ParticipantInputRowComponent = ({ participant, onUpdate, onRemove, index }
 };
 
 export const ParticipantInputRow = React.memo(ParticipantInputRowComponent);
+
+    
