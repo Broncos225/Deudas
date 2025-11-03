@@ -1008,6 +1008,7 @@ const handleEditDebtorAndCreateMirror = async (
                   user={user}
                   debts={debts || []}
                   debtors={debtors || []}
+                  categories={categories || []}
                   settlements={settlements || []}
                   onAddPayment={handleAddPayment}
                   onEditDebt={handleEditDebt}

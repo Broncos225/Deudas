@@ -24,6 +24,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
     Select,
     SelectContent,
@@ -49,6 +50,7 @@ import { v4 as uuidv4 } from 'uuid';
 const debtFormSchema = z.object({
   debtorId: z.string({ required_error: "Debes seleccionar un deudor." }),
   concept: z.string().min(3, { message: "El concepto debe tener al menos 3 caracteres." }),
+  description: z.string().optional(),
   amount: z.coerce.number().positive({ message: "El monto debe ser positivo." }),
   currency: z.string({ required_error: "Se requiere una divisa." }),
   type: z.enum(["iou", "uome"], { required_error: "Debes seleccionar un tipo de deuda." }),
@@ -65,7 +67,7 @@ type DebtFormValues = z.infer<typeof debtFormSchema>;
 
 interface AddDebtDialogProps {
   debtors: Debtor[];
-  categories: Category[];
+  categories?: Category[];
   debtToEdit?: Debt;
   onAddDebt?: (newDebt: Omit<Debt, 'id' | 'payments' | 'debtorName'>) => void;
   onEditDebt?: (debtId: string, updatedDebt: Partial<Omit<Debt, 'id'>>, debtorName: string) => void;
@@ -84,12 +86,12 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debt
     defaultValues: {
       amount: 0,
       concept: "",
+      description: "",
       currency: "COP",
       type: "iou",
       createdAt: new Date(),
       items: [],
       dueDate: undefined,
-      categoryId: "none",
     }
   });
 
@@ -115,6 +117,7 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debt
         form.reset({
           debtorId: debtToEdit.debtorId,
           concept: debtToEdit.concept,
+          description: debtToEdit.description || "",
           amount: debtToEdit.amount,
           currency: debtToEdit.currency,
           type: debtToEdit.type,
@@ -129,6 +132,7 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debt
           currency: "COP",
           type: "iou",
           concept: "",
+          description: "",
           debtorId: undefined,
           createdAt: new Date(),
           dueDate: undefined,
@@ -186,6 +190,10 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debt
     
     if (baseDebtData.categoryId === undefined || baseDebtData.categoryId === 'none') {
         delete baseDebtData.categoryId;
+    }
+    
+    if (!baseDebtData.description) {
+        delete baseDebtData.description;
     }
 
 
@@ -322,6 +330,24 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debt
                     </FormItem>
                   )}
                 />
+                
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Descripción (Opcional)</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="Añade detalles adicionales sobre la deuda..."
+                          className="resize-none"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
                 <FormField
                   control={form.control}
@@ -329,7 +355,7 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debt
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Categoría (Opcional)</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value} defaultValue="none">
+                      <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Selecciona una categoría" />
@@ -337,7 +363,7 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debt
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="none">Sin Categoría</SelectItem>
-                          {categories.map(category => (
+                          {(categories || []).map(category => (
                             <SelectItem key={category.id} value={category.id}>
                               <div className="flex items-center gap-2">
                                 <span className={cn("w-2 h-2 rounded-full", category.color)}></span>

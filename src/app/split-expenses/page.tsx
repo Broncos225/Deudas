@@ -55,6 +55,7 @@ import {
   setDocumentNonBlocking,
 } from '@/firebase';
 import { Timestamp, collection, doc } from 'firebase/firestore';
+import { Textarea } from '@/components/ui/textarea';
 
 interface Participant {
   id: string;
@@ -98,6 +99,8 @@ export default function SplitBillPage() {
   const [totalBillAmount, setTotalBillAmount] = useState<number | undefined>(
     undefined
   );
+  const [expenseTitle, setExpenseTitle] = useState('');
+  const [expenseDescription, setExpenseDescription] = useState('');
 
   const [participants, setParticipants] = useState<Participant[]>([]);
 
@@ -457,11 +460,15 @@ export default function SplitBillPage() {
     if (!totalBillAmount || costPerPersonSummary.length === 0)
       return 'No hay datos para generar el resumen.';
 
-    let summary = 'Resumen de División de Gastos\n';
+    let summary = `Resumen de División de Gastos: ${expenseTitle || 'Gasto Compartido'}\n`;
     summary += '=============================\n';
     summary += `Monto Total del Gasto: ${formatUserCurrency(
       totalBillAmount
-    )}\n\n`;
+    )}\n`;
+    if (expenseDescription) {
+        summary += `Descripción: ${expenseDescription}\n`;
+    }
+    summary += '\n';
 
     summary += 'Participantes:\n';
     summary += '-----------------------------\n';
@@ -545,7 +552,8 @@ export default function SplitBillPage() {
         const fromDebtorContact = fromParticipant?.isDebtor ? debtors.find(d => d.id === fromParticipant.debtorId) : null;
         const toDebtorContact = toParticipant?.isDebtor ? debtors.find(d => d.id === toParticipant.debtorId) : null;
 
-        const debtConcept = `División de gastos (${totalBillAmount ? formatUserCurrency(totalBillAmount) : 'Varios'})`;
+        const debtConcept = expenseTitle || `División de gastos (${totalBillAmount ? formatUserCurrency(totalBillAmount) : 'Varios'})`;
+        const debtDescription = expenseDescription || undefined;
         
         // Case 1: Debt between two app users (current user not involved)
         if (fromDebtorContact?.isAppUser && fromDebtorContact.appUserId && 
@@ -557,7 +565,8 @@ export default function SplitBillPage() {
             const debt = {
                 creatorId: user.uid,
                 debtorName: toDebtorContact.name,
-                concept: `${debtConcept}`,
+                concept: debtConcept,
+                description: debtDescription,
                 amount: settlement.amount,
                 currency: 'COP', 
                 type: 'iou',
@@ -604,7 +613,8 @@ export default function SplitBillPage() {
                     userId: user.uid,
                     debtorId: debtorIdForGeneric,
                     debtorName: otherParticipant.name,
-                    concept: `${debtConcept}`,
+                    concept: debtConcept,
+                    description: debtDescription,
                     amount: settlement.amount,
                     currency: 'COP',
                     type: isUome ? 'uome' : 'iou',
@@ -636,7 +646,8 @@ export default function SplitBillPage() {
             const debtData: Omit<Debt, 'id' | 'payments' | 'debtorName'> = {
                 creatorId: user.uid,
                 debtorId: otherParticipant.debtorId,
-                concept: `${debtConcept}`,
+                concept: debtConcept,
+                description: debtDescription,
                 amount: settlement.amount,
                 currency: 'COP',
                 type: isUome ? 'uome' : 'iou',
@@ -665,7 +676,8 @@ export default function SplitBillPage() {
                 userId: appUserContact.appUserId,
                 debtorId: debtorIdForGeneric,
                 debtorName: genericParticipant.name,
-                concept: `${debtConcept}`,
+                concept: debtConcept,
+                description: debtDescription,
                 amount: settlement.amount,
                 currency: 'COP',
                 type: debtType,
@@ -753,6 +765,26 @@ export default function SplitBillPage() {
               <CardTitle>1. Configuración del Gasto</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="expenseTitle">Título del Gasto (Opcional)</Label>
+                <Input 
+                  id="expenseTitle" 
+                  placeholder="Ej: Cena de aniversario, Viaje a la playa"
+                  value={expenseTitle}
+                  onChange={(e) => setExpenseTitle(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+               <div>
+                <Label htmlFor="expenseDescription">Descripción (Opcional)</Label>
+                <Textarea
+                  id="expenseDescription"
+                  placeholder="Añade detalles sobre el gasto..."
+                  value={expenseDescription}
+                  onChange={(e) => setExpenseDescription(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
               <div>
                 <Label htmlFor="totalBillAmount">Monto Total del Gasto</Label>
                 <div className="flex items-center gap-2 mt-1">
@@ -1125,3 +1157,5 @@ export default function SplitBillPage() {
     </>
   );
 }
+
+    

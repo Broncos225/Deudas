@@ -2,7 +2,7 @@
 "use client";
 
 import { useMemo } from 'react';
-import type { Debt, Debtor, Payment, Settlement } from "@/lib/types";
+import type { Debt, Debtor, Payment, Settlement, Category } from "@/lib/types";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { DebtsGrid } from './debts-grid';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
@@ -37,6 +37,7 @@ interface DebtsByPersonProps {
   user: User | null;
   debts: Debt[];
   debtors: Debtor[];
+  categories: Category[];
   settlements: Settlement[];
   onAddPayment: (debtId: string, newPayment: Omit<Payment, 'id'>) => void;
   onEditDebt: (debtId: string, updatedDebt: Partial<Omit<Debt, 'id'>>, debtorName: string) => void;
@@ -56,6 +57,7 @@ export function DebtsByPerson({
     user,
     debts, 
     debtors, 
+    categories,
     settlements, 
     onAddPayment, 
     onEditDebt, 
@@ -341,6 +343,7 @@ export function DebtsByPerson({
                                 <DebtsGrid
                                     debts={personDebts}
                                     debtors={debtors}
+                                    categories={categories}
                                     user={user}
                                     onAddPayment={onAddPayment}
                                     onEditDebt={onEditDebt}

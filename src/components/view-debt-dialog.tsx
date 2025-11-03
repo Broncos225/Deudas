@@ -29,7 +29,7 @@ import { cn } from '@/lib/utils';
 
 interface ViewDebtDialogProps {
   debt: Debt;
-  categories: Category[];
+  categories?: Category[];
   children?: React.ReactNode;
   onEditPayment: (debtId: string, paymentId: string, updatedPayment: Partial<Omit<Payment, 'id'>>) => void;
   onDeletePayment: (debtId: string, paymentId: string) => void;
@@ -155,6 +155,16 @@ export function ViewDebtDialog({ debt, categories, children, onEditPayment, onDe
                   <div className="col-span-2 font-semibold"><span className="font-medium text-muted-foreground">Restante:</span> {formatCurrency(remaining, debt.currency)}</div>
                   </div>
                   
+                  {debt.description && (
+                    <>
+                      <Separator />
+                      <div>
+                        <h4 className="font-medium mb-1">Descripción</h4>
+                        <p className="text-sm text-muted-foreground whitespace-pre-wrap">{debt.description}</p>
+                      </div>
+                    </>
+                  )}
+
                   {isRejected && debt.rejectionReason && (
                     <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md text-sm">
                       <h4 className="font-semibold flex items-center gap-2 text-destructive"><AlertTriangle className="h-4 w-4" /> Deuda Rechazada</h4>

@@ -46,6 +46,7 @@ export interface Debt {
   amount: number;
   currency: string;
   concept: string;
+  description?: string; // Optional detailed description
   categoryId?: string; // New field for category
   items?: Item[]; // Optional array for detailed items
   type: 'iou' | 'uome'; // iou: I owe you (Tú debes), uome: You owe me (Te deben)

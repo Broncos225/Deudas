@@ -51,7 +51,7 @@ import { Badge } from './ui/badge';
 interface DebtsGridProps {
   debts: Debt[];
   debtors: Debtor[];
-  categories: Category[];
+  categories?: Category[];
   user: User | null;
   onAddPayment: (debtId: string, newPayment: Omit<Payment, 'id'>) => void;
   onEditDebt: (debtId: string, updatedDebt: Partial<Omit<Debt, 'id'>>, debtorName: string) => void;
@@ -158,7 +158,7 @@ export function DebtsGrid({
     }).format(amount);
     
   const getCategory = (categoryId?: string) => {
-    if (!categoryId) return null;
+    if (!categoryId || !categories) return null;
     return categories.find(c => c.id === categoryId);
   }
 
@@ -247,6 +247,7 @@ export function DebtsGrid({
                     </CardTitle>
                     <CardDescription className="text-sm pl-6">
                       <span className="font-semibold text-foreground">{debt.concept}</span>
+                      {debt.description && <p className="text-xs text-muted-foreground mt-1 truncate">{debt.description}</p>}
                     </CardDescription>
                      <CardDescription className="text-sm pl-6">
                       <span className="font-semibold text-foreground">{formatCurrency(debt.amount, debt.currency)}</span>
