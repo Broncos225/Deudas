@@ -115,6 +115,7 @@ export function AddPaymentDialog({ debt, onAddPayment, children }: AddPaymentDia
       amount: data.amount,
       date: Timestamp.fromDate(data.date),
       receiptUrl: receiptDataUrl,
+      createdBy: user.uid,
     };
 
     onAddPayment(debt.id, newPayment);

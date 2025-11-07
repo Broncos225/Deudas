@@ -51,7 +51,9 @@ interface DebtsByPersonProps {
   onConfirmDeletion: (debtId: string) => void;
   onCancelDeletionRequest: (debtId: string) => void;
   onSetDebtCategory: (debtId: string, categoryId: string | null) => void;
+  onViewDebt: (debt: Debt) => void;
   isLoading: boolean;
+  onToggleRecurrence: (debt: Debt, status: 'active' | 'paused') => void;
 }
 
 export function DebtsByPerson({ 
@@ -72,7 +74,9 @@ export function DebtsByPerson({
     onConfirmDeletion,
     onCancelDeletionRequest,
     onSetDebtCategory,
-    isLoading
+    onViewDebt,
+    isLoading,
+    onToggleRecurrence
 }: DebtsByPersonProps) {
 
   const { toast } = useToast();
@@ -357,8 +361,10 @@ export function DebtsByPerson({
                                     onConfirmDeletion={onConfirmDeletion}
                                     onCancelDeletionRequest={onCancelDeletionRequest}
                                     onSetDebtCategory={onSetDebtCategory}
+                                    onViewDebt={onViewDebt}
                                     isLoading={isLoading}
                                     showSettled={false}
+                                    onToggleRecurrence={onToggleRecurrence}
                                 />
                             </div>
                         </AccordionContent>

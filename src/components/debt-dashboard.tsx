@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
@@ -32,6 +33,7 @@ import { useAppData } from '@/contexts/app-data-context';
 import { DateRange } from 'react-day-picker';
 import { isWithinInterval } from 'date-fns';
 import { CategoryManager } from './category-manager';
+import { useRecurringDebts } from '@/hooks/useRecurringDebts';
 
 
 export default function DebtDashboard() {
@@ -42,12 +44,15 @@ export default function DebtDashboard() {
   
   const { 
     debtors, 
-    allDebts: debts, 
+    allDebts: debts,
+    privateDebts, 
     settlements,
     categories, 
-    isLoading,
+    isLoading: isAppDataLoading,
     addActivityLog
   } = useAppData();
+  
+  const { isProcessing: isRecurringProcessing, toggleRecurrenceStatus } = useRecurringDebts(privateDebts);
 
   const [activeTab, setActiveTab] = useState("overview");
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -61,6 +66,8 @@ export default function DebtDashboard() {
     date: { from: undefined, to: undefined },
   });
   const [debtToView, setDebtToView] = useState<Debt | null>(null);
+
+  const isLoading = isAppDataLoading || isRecurringProcessing;
 
   useEffect(() => {
     if (!isUserLoading && !user) {
@@ -284,7 +291,8 @@ const handleAddDebt = useCallback(async (newDebtData: Omit<Debt, 'id' | 'payment
             description: 'La otra parte debe confirmar para eliminar la deuda permanentemente.',
         });
     } else {
-        const debtDocRef = doc(firestore, `users/${user.uid}/debts`, debtId);
+        const collectionPath = debt.isRecurring ? `users/${user.uid}/debts` : `users/${user.uid}/debts`;
+        const debtDocRef = doc(firestore, collectionPath, debtId);
         deleteDocumentNonBlocking(debtDocRef);
         toast({
             title: 'Deuda Eliminada',
@@ -804,11 +812,15 @@ const handleEditDebtorAndCreateMirror = async (
   };
 
 
-  const applyFiltersAndSort = useCallback((debtsToFilter: Debt[]) => {
+  const applyFiltersAndSort = useCallback((debtsToFilter: Debt[], excludeRecurringTemplates: boolean = false) => {
       if (!debtsToFilter) return [];
       const query = searchQuery.toLowerCase();
       
       const filtered = debtsToFilter.filter(debt => {
+          if (excludeRecurringTemplates && debt.isRecurring) {
+            return false;
+          }
+
           const matchesSearch = query === "" ||
               debt.concept.toLowerCase().includes(query) ||
               debt.debtorName.toLowerCase().includes(query) ||
@@ -841,15 +853,21 @@ const handleEditDebtorAndCreateMirror = async (
 
   const activeDebts = useMemo(() => {
     if (!debts) return [];
-    // An active debt is one that is NOT fully paid. Status doesn't matter for this view.
-    const outstandingDebts = debts.filter(d => (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) > 0.01);
+    // An active debt is one that is NOT fully paid and not a recurring template
+    const outstandingDebts = debts.filter(d => !d.isRecurring && (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) > 0.01);
     return applyFiltersAndSort(outstandingDebts);
+  }, [debts, applyFiltersAndSort]);
+
+  const recurringDebts = useMemo(() => {
+    if(!debts) return [];
+    const recurringTemplates = debts.filter(d => d.isRecurring);
+    return applyFiltersAndSort(recurringTemplates);
   }, [debts, applyFiltersAndSort]);
 
   const historicalDebts = useMemo(() => {
     if (!debts) return [];
-    // A historical debt is one that IS fully paid.
-    const settledOrRejected = debts.filter(d => (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) <= 0.01);
+    // A historical debt is one that IS fully paid and not a recurring template.
+    const settledOrRejected = debts.filter(d => !d.isRecurring && (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) <= 0.01);
     return applyFiltersAndSort(settledOrRejected);
   }, [debts, applyFiltersAndSort]);
 
@@ -862,7 +880,8 @@ const handleEditDebtorAndCreateMirror = async (
   const { totalIOwe, totalOwedToMe } = useMemo(() => {
     if (!debts) return { totalIOwe: 0, totalOwedToMe: 0 };
     
-    const activeApprovedDebts = debts.filter(d => d.status !== 'pending' && d.status !== 'rejected');
+    // Only include non-template, active and approved debts for dashboard totals
+    const activeApprovedDebts = debts.filter(d => !d.isRecurring && d.status === 'approved');
 
     const totals = activeApprovedDebts.reduce((acc, debt) => {
       const rate = debt.currency === 'USD' ? 4000 : debt.currency === 'EUR' ? 4500: 1;
@@ -934,12 +953,14 @@ const handleEditDebtorAndCreateMirror = async (
         onViewDebt={handleViewDebt}
         isLoading={isLoading}
         showSettled={isSettledView}
+        onToggleRecurrence={toggleRecurrenceStatus}
       />;
   };
 
   const TABS_CONFIG = [
       { value: "overview", label: "Resumen" },
       { value: "all-debts", label: "Deudas" },
+      { value: "recurring", label: "Recurrentes" },
       { value: "activity", label: "Actividad" },
       { value: "history", label: "Historial" },
       { value: "debtors", label: "Contactos" },
@@ -1003,7 +1024,7 @@ const handleEditDebtorAndCreateMirror = async (
                        <TabsTrigger key={tab.value} value={tab.value}>{tab.label}</TabsTrigger>
                     ))}
                 </TabsList>
-                {(activeTab === 'all-debts' || activeTab === 'history') && (
+                {(activeTab === 'all-debts' || activeTab === 'history' || activeTab === 'recurring') && (
                     <div className="flex items-center gap-2">
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -1037,7 +1058,7 @@ const handleEditDebtorAndCreateMirror = async (
                     </div>
                 )}
             </div>
-             {(activeTab === 'all-debts' || activeTab === 'history') && (
+             {(activeTab === 'all-debts' || activeTab === 'history' || activeTab === 'recurring') && (
               <DebtFilters
                 filters={filters}
                 onFilterChange={setFilters}
@@ -1053,7 +1074,7 @@ const handleEditDebtorAndCreateMirror = async (
               <div className="space-y-4">
                 <DebtsByPerson
                   user={user}
-                  debts={debts || []}
+                  debts={debts.filter(d => !d.isRecurring)}
                   debtors={debtors || []}
                   categories={categories || []}
                   settlements={settlements || []}
@@ -1069,13 +1090,18 @@ const handleEditDebtorAndCreateMirror = async (
                   onApproveDebt={handleApproveDebt}
                   onRejectDebt={handleRejectDebt}
                   onSetDebtCategory={handleSetDebtCategory}
+                  onViewDebt={handleViewDebt}
                   isLoading={isLoading}
+                  onToggleRecurrence={toggleRecurrenceStatus}
                 />
-                <DebtsChart debts={debts || []} />
+                <DebtsChart debts={debts.filter(d => !d.isRecurring)} />
               </div>
             </TabsContent>
             <TabsContent value="all-debts" forceMount={activeTab === 'all-debts'}>
               {renderContentForDebts(activeDebts, false)}
+            </TabsContent>
+            <TabsContent value="recurring" forceMount={activeTab === 'recurring'}>
+              {renderContentForDebts(recurringDebts, false)}
             </TabsContent>
             <TabsContent value="activity" forceMount={activeTab === 'activity'}>
               <ActivityFeed debts={debts} debtors={debtors || []} onViewDebt={handleViewDebt}/>
@@ -1110,3 +1136,4 @@ const handleEditDebtorAndCreateMirror = async (
     </div>
   );
 }
+

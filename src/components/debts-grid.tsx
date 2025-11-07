@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import type { Debt, Debtor, Payment, Category } from "@/lib/types";
 import { format, isValid, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
-import { MoreHorizontal, Edit, Trash2, ArrowDownLeft, ArrowUpRight, Wallet, Loader, CheckCircle, Bell, Info, ThumbsUp, ThumbsDown, AlertTriangle, XCircle, ShieldQuestion, Tag, Circle } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, ArrowDownLeft, ArrowUpRight, Wallet, Loader, CheckCircle, Bell, Info, ThumbsUp, ThumbsDown, AlertTriangle, XCircle, ShieldQuestion, Tag, Circle, Repeat, Play, Pause } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -69,6 +69,7 @@ interface DebtsGridProps {
   onViewDebt: (debt: Debt) => void;
   isLoading: boolean;
   showSettled: boolean;
+  onToggleRecurrence: (debt: Debt, status: 'active' | 'paused') => void;
 }
 
 const ClientFormattedDate = ({ date, prefix }: { date: string | Date | Timestamp, prefix?: string }) => {
@@ -151,7 +152,8 @@ export function DebtsGrid({
     onSetDebtCategory,
     onViewDebt,
     isLoading,
-    showSettled 
+    showSettled,
+    onToggleRecurrence,
 }: DebtsGridProps) {
   const calculatePaid = (debt: Debt) => debt.payments.reduce((sum, p) => sum + p.amount, 0);
   const calculateRemaining = (debt: Debt) => debt.amount - calculatePaid(debt);
@@ -210,10 +212,13 @@ export function DebtsGrid({
 
         const isDeletionRequested = debt.isShared && debt.deletionStatus === 'requested';
         const canConfirmDeletion = isDeletionRequested && debt.deletionRequestedBy !== user?.uid;
+        
+        const isRecurringTemplate = debt.isRecurring;
 
         const category = getCategory(debt.categoryId);
 
         const getStatusBadge = () => {
+            if (isRecurringTemplate) return { text: `Recurrente (${debt.recurrence?.status || 'unknown'})`, className: "bg-purple-100 text-purple-700", Icon: Repeat };
             if (isDeletionRequested) return { text: "Eliminación Solicitada", className: "bg-orange-100 text-orange-700", Icon: ShieldQuestion };
             if (isPaid) return { text: "Pagado", className: "bg-green-100 text-green-700", Icon: CheckCircle };
             if (isPending) return { text: "Pendiente", className: "bg-yellow-100 text-yellow-700", Icon: Bell };
@@ -230,7 +235,8 @@ export function DebtsGrid({
             className={cn(
               "flex flex-col group hover:shadow-md transition-shadow duration-200 cursor-pointer",
               isPending && "bg-yellow-50/50 dark:bg-yellow-900/10 border-yellow-500/50",
-              isDeletionRequested && "bg-orange-50/50 dark:bg-orange-900/10 border-orange-500/50"
+              isDeletionRequested && "bg-orange-50/50 dark:bg-orange-900/10 border-orange-500/50",
+              isRecurringTemplate && "bg-purple-50/50 dark:bg-purple-900/10 border-purple-500/50"
             )}
             onClick={() => onViewDebt(debt)}
           >
@@ -238,7 +244,7 @@ export function DebtsGrid({
                 <div className="grid gap-1 flex-1">
                     <CardTitle className="text-base md:text-lg flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        {isIOU ? <ArrowDownLeft className="h-4 w-4 text-red-500" /> : <ArrowUpRight className="h-4 w-4 text-green-500" />}
+                        {isRecurringTemplate ? <Repeat className="h-4 w-4 text-purple-500" /> : (isIOU ? <ArrowDownLeft className="h-4 w-4 text-red-500" /> : <ArrowUpRight className="h-4 w-4 text-green-500" />)}
                         {debt.debtorName}
                       </div>
                       <TooltipProvider>
@@ -252,6 +258,7 @@ export function DebtsGrid({
                             <TooltipContent>
                                 {isDeletionRequested && <p>Esperando confirmación de la otra parte.</p>}
                                 {isPending && <p>Esperando aprobación para activar la deuda.</p>}
+                                {isRecurringTemplate && <p>Esta es una plantilla para deudas recurrentes.</p>}
                             </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
@@ -284,6 +291,19 @@ export function DebtsGrid({
                                     </DropdownMenuItem>
                                 </AddDebtDialog>
                             )}
+                            {isRecurringTemplate && debt.recurrence && (
+                                <>
+                                {debt.recurrence.status === 'active' ? (
+                                    <DropdownMenuItem onSelect={() => onToggleRecurrence(debt, 'paused')} className="gap-2">
+                                        <Pause className="h-4 w-4" /> Pausar Recurrencia
+                                    </DropdownMenuItem>
+                                ) : (
+                                    <DropdownMenuItem onSelect={() => onToggleRecurrence(debt, 'active')} className="gap-2">
+                                        <Play className="h-4 w-4" /> Reanudar Recurrencia
+                                    </DropdownMenuItem>
+                                )}
+                                </>
+                            )}
                             <DropdownMenuSub>
                                 <DropdownMenuSubTrigger>
                                     <Tag className="mr-2 h-4 w-4" />
@@ -309,7 +329,7 @@ export function DebtsGrid({
                                 isShared={debt.isShared || false}
                            >
                               <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-red-500 focus:text-red-500 focus:bg-red-50 gap-2">
-                                  <Trash2 className="h-4 w-4" /> {debt.isShared ? 'Solicitar Eliminación' : 'Eliminar'}
+                                  <Trash2 className="h-4 w-4" /> {debt.isShared || isRecurringTemplate ? 'Eliminar' : 'Eliminar'}
                               </DropdownMenuItem>
                           </DeleteDebtAlertDialog>
                         </DropdownMenuContent>
@@ -341,7 +361,7 @@ export function DebtsGrid({
                     )}
                 </div>
                 <div onClick={(e) => e.stopPropagation()}>
-                    {isApproved && !isPaid && !isDeletionRequested && (
+                    {isApproved && !isPaid && !isDeletionRequested && !isRecurringTemplate && (
                       <AddPaymentDialog debt={debt} onAddPayment={onAddPayment}>
                         <Button variant="outline" size="sm" className="w-full sm:w-auto gap-2">
                           <Wallet className="h-4 w-4" /> Añadir Pago
@@ -441,4 +461,3 @@ export function DebtsGrid({
     </div>
   );
 }
-

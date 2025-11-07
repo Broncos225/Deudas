@@ -19,6 +19,10 @@
           "type": "string",
           "description": "A brief description of what the debt is for."
         },
+        "description": {
+          "type": "string",
+          "description": "An optional, more detailed description of the debt."
+        },
         "amount": {
           "type": "number",
           "description": "The total amount of the debt."
@@ -119,6 +123,51 @@
         "deletionRequestedBy": {
             "type": "string",
             "description": "The UID of the user who requested the deletion."
+        },
+        "originalDebtor": {
+            "type": "string",
+            "description": "Name of the person who originally owed the money in a 3-way split, for context when the creator is a third party."
+        },
+        "isRecurring": {
+          "type": "boolean",
+          "description": "Flag to identify if this is a recurring debt template."
+        },
+        "recurrence": {
+          "type": "object",
+          "description": "Object containing the recurrence rule.",
+          "properties": {
+            "frequency": {
+              "type": "string",
+              "enum": ["daily", "weekly", "biweekly", "monthly", "yearly"]
+            },
+            "endDate": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "nextOccurrenceDate": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "lastGeneratedDate": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "status": {
+              "type": "string",
+              "enum": ["active", "paused"]
+            },
+            "dayOfMonth": {
+              "type": "number"
+            },
+            "activeDebtId": {
+                "type": "string",
+                "description": "ID of the currently active generated debt instance"
+            }
+          }
+        },
+        "generatedFromRecurringId": {
+          "type": "string",
+          "description": "The ID of the recurring debt template that generated this instance."
         }
       },
       "required": [
@@ -182,6 +231,10 @@
         "settlementId": {
             "type": "string",
             "description": "ID of the settlement event."
+        },
+        "createdBy": {
+            "type": "string",
+            "description": "UID of the user who added the payment"
         }
       },
       "required": [
@@ -236,6 +289,31 @@
         "type",
         "userId"
       ]
+    },
+    "Category": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Category",
+      "type": "object",
+      "description": "Represents a user-defined category for debts.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the category."
+        },
+        "icon": {
+          "type": "string",
+          "description": "The name of the lucide-react icon for the category."
+        },
+        "color": {
+          "type": "string",
+          "description": "The tailwind color class for the category (e.g., 'bg-blue-500')."
+        },
+        "userId": {
+          "type": "string",
+          "description": "The ID of the user who owns this category."
+        }
+      },
+      "required": ["name", "icon", "color", "userId"]
     },
     "Settlement": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -300,6 +378,11 @@
                 "type": "string",
                 "description": "The denormalized name of the user for display."
             },
+            "userPhotoUrl": {
+                "type": "string",
+                "description": "The denormalized photo URL of the user.",
+                "format": "uri"
+            },
             "message": {
                 "type": "string",
                 "description": "A human-readable message describing the activity."
@@ -325,6 +408,27 @@
             "timestamp",
             "participants"
         ]
+    },
+    "DebtUserMetadata": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "Debt User Metadata",
+        "type": "object",
+        "description": "Stores user-specific metadata for a debt, like a personal category.",
+        "properties": {
+            "userId": {
+                "type": "string",
+                "description": "The ID of the user."
+            },
+            "debtId": {
+                "type": "string",
+                "description": "The ID of the debt."
+            },
+            "categoryId": {
+                "type": "string",
+                "description": "The ID of the category assigned by the user."
+            }
+        },
+        "required": ["userId", "debtId", "categoryId"]
     }
   },
   "auth": {
@@ -368,6 +472,20 @@
           "$ref": "#/entities/ActivityLog"
         },
         "description": "Stores activity logs for shared debts."
+      },
+      {
+        "path": "/users/{userId}/categories/{categoryId}",
+        "schema": {
+          "$ref": "#/entities/Category"
+        },
+        "description": "Stores user-defined debt categories."
+      },
+      {
+        "path": "/debt_user_metadata/{metadataId}",
+        "schema": {
+            "$ref": "#/entities/DebtUserMetadata"
+        },
+        "description": "Stores user-specific metadata for debts, such as personal categories."
       }
     ]
   }

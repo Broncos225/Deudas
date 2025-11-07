@@ -39,6 +39,16 @@ export interface Category {
   userId: string;
 }
 
+export interface Recurrence {
+    frequency: 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly';
+    endDate?: Timestamp;
+    nextOccurrenceDate: Timestamp;
+    lastGeneratedDate?: Timestamp;
+    status: 'active' | 'paused';
+    dayOfMonth?: number; // For monthly recurrence
+    activeDebtId?: string; // ID of the currently active generated debt instance
+}
+
 export interface Debt {
   id: string;
   debtorId: string;
@@ -71,6 +81,10 @@ export interface Debt {
   // Deletion system fields
   deletionStatus?: 'none' | 'requested';
   deletionRequestedBy?: string;
+  // Recurring debt fields
+  isRecurring?: boolean; // Is this a recurring debt template?
+  recurrence?: Recurrence; // Recurrence rule
+  generatedFromRecurringId?: string; // ID of the template it was generated from
 }
 
 export interface Settlement {

@@ -18,6 +18,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -32,13 +33,13 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { FileImage, PlusCircle, Calendar as CalendarIcon, Trash2, ArrowDownLeft, ArrowUpRight } from "lucide-react";
-import type { Debt, Debtor, Category } from "@/lib/types";
+import { FileImage, PlusCircle, Calendar as CalendarIcon, Trash2, ArrowDownLeft, ArrowUpRight, Repeat } from "lucide-react";
+import type { Debt, Debtor, Category, Recurrence } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { fileToDataUrl } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Calendar } from './ui/calendar';
-import { format } from 'date-fns';
+import { format, add } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { Timestamp } from 'firebase/firestore';
@@ -47,6 +48,14 @@ import { useUser, useStorage } from '@/firebase';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 import { v4 as uuidv4 } from 'uuid';
 import { Combobox } from './ui/combobox';
+import { Switch } from './ui/switch';
+import { Separator } from './ui/separator';
+
+const recurrenceSchema = z.object({
+    frequency: z.enum(["daily", "weekly", "biweekly", "monthly", "yearly"]),
+    endDate: z.date().optional(),
+    dayOfMonth: z.coerce.number().optional(),
+}).optional();
 
 const debtFormSchema = z.object({
   debtorId: z.string({ required_error: "Debes seleccionar o crear un deudor." }),
@@ -61,6 +70,8 @@ const debtFormSchema = z.object({
     name: z.string().min(1, { message: "El nombre es requerido." }),
     value: z.coerce.number().positive({ message: "El valor debe ser positivo." }),
   })).optional(),
+  isRecurring: z.boolean().default(false),
+  recurrence: recurrenceSchema,
 });
 
 type DebtFormValues = z.infer<typeof debtFormSchema>;
@@ -91,6 +102,10 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
       createdAt: new Date(),
       items: [],
       dueDate: undefined,
+      isRecurring: false,
+      recurrence: {
+          frequency: 'monthly',
+      }
     }
   });
 
@@ -100,6 +115,18 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
   });
 
   const watchedItems = form.watch("items");
+  const isRecurring = form.watch("isRecurring");
+  const recurrenceFrequency = form.watch("recurrence.frequency");
+  const selectedDebtorId = form.watch("debtorId");
+  const selectedDebtor = debtors.find(d => d.id === selectedDebtorId);
+  const isDebtorShared = selectedDebtor?.isAppUser;
+
+  useEffect(() => {
+    if (isDebtorShared) {
+        form.setValue('isRecurring', false);
+    }
+  }, [isDebtorShared, form]);
+
   const hasItems = watchedItems && watchedItems.length > 0;
 
   useEffect(() => {
@@ -123,6 +150,12 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
           createdAt: debtToEdit.createdAt.toDate(),
           dueDate: debtToEdit.dueDate ? debtToEdit.dueDate.toDate() : undefined,
           items: debtToEdit.items || [],
+          isRecurring: debtToEdit.isRecurring || false,
+          recurrence: {
+              frequency: debtToEdit.recurrence?.frequency || 'monthly',
+              endDate: debtToEdit.recurrence?.endDate?.toDate(),
+              dayOfMonth: debtToEdit.recurrence?.dayOfMonth,
+          },
         });
       } else {
         form.reset({
@@ -135,6 +168,11 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
           createdAt: new Date(),
           dueDate: undefined,
           items: [],
+          isRecurring: false,
+          recurrence: {
+              frequency: 'monthly',
+              dayOfMonth: new Date().getDate(),
+          }
         });
       }
     }
@@ -185,6 +223,32 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
     
     if (!baseDebtData.description) {
         delete baseDebtData.description;
+    }
+
+    if (data.isRecurring && data.recurrence) {
+        baseDebtData.isRecurring = true;
+        
+        let nextOccurrenceDate;
+        const now = new Date();
+        switch (data.recurrence.frequency) {
+            case 'daily': nextOccurrenceDate = add(now, { days: 1 }); break;
+            case 'weekly': nextOccurrenceDate = add(now, { weeks: 1 }); break;
+            case 'biweekly': nextOccurrenceDate = add(now, { weeks: 2 }); break;
+            case 'monthly': nextOccurrenceDate = add(now, { months: 1 }); break;
+            case 'yearly': nextOccurrenceDate = add(now, { years: 1 }); break;
+            default: nextOccurrenceDate = add(now, { months: 1 });
+        }
+
+        baseDebtData.recurrence = {
+            frequency: data.recurrence.frequency,
+            status: 'active',
+            nextOccurrenceDate: Timestamp.fromDate(nextOccurrenceDate),
+            ...(data.recurrence.endDate && { endDate: Timestamp.fromDate(data.recurrence.endDate) }),
+            ...(data.recurrence.dayOfMonth && { dayOfMonth: data.recurrence.dayOfMonth }),
+        }
+    } else {
+        baseDebtData.isRecurring = false;
+        delete baseDebtData.recurrence;
     }
 
 
@@ -525,6 +589,100 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
                   </FormControl>
                   <FormMessage />
                 </FormItem>
+
+                {!isDebtorShared && (
+                    <>
+                    <Separator />
+                     <div>
+                        <h3 className="text-sm font-medium mb-3">Recurrencia</h3>
+                          <FormField
+                          control={form.control}
+                          name="isRecurring"
+                          render={({ field }) => (
+                              <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                                  <div className="space-y-0.5">
+                                      <FormLabel>Deuda Recurrente</FormLabel>
+                                      <FormDescription className="text-xs">
+                                          Genera esta deuda automáticamente.
+                                      </FormDescription>
+                                  </div>
+                                  <FormControl>
+                                      <Switch
+                                      checked={field.value}
+                                      onCheckedChange={field.onChange}
+                                      />
+                                  </FormControl>
+                              </FormItem>
+                          )}
+                          />
+                          {isRecurring && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                               <FormField
+                                control={form.control}
+                                name="recurrence.frequency"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Frecuencia</FormLabel>
+                                        <Select onValueChange={field.onChange} value={field.value}>
+                                            <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Frecuencia" />
+                                            </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent>
+                                                <SelectItem value="daily">Diaria</SelectItem>
+                                                <SelectItem value="weekly">Semanal</SelectItem>
+                                                <SelectItem value="biweekly">Quincenal</SelectItem>
+                                                <SelectItem value="monthly">Mensual</SelectItem>
+                                                <SelectItem value="yearly">Anual</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </FormItem>
+                                )}
+                                />
+                                {recurrenceFrequency === 'monthly' && (
+                                     <FormField
+                                        control={form.control}
+                                        name="recurrence.dayOfMonth"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Día del Mes</FormLabel>
+                                                <FormControl>
+                                                    <Input type="number" min="1" max="31" {...field} />
+                                                </FormControl>
+                                            </FormItem>
+                                        )}
+                                     />
+                                )}
+                                <FormField
+                                    control={form.control}
+                                    name="recurrence.endDate"
+                                    render={({ field }) => (
+                                    <FormItem className="flex flex-col">
+                                        <FormLabel>Fecha de Fin (Opcional)</FormLabel>
+                                        <Popover>
+                                        <PopoverTrigger asChild>
+                                            <FormControl>
+                                            <Button variant={"outline"} className={cn("pl-3 text-left font-normal", !field.value && "text-muted-foreground")}>
+                                                {field.value ? format(field.value, "PPP", { locale: es }) : <span>Elige una fecha</span>}
+                                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                            </Button>
+                                            </FormControl>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0" align="start">
+                                            <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
+                                        </PopoverContent>
+                                        </Popover>
+                                    </FormItem>
+                                    )}
+                                />
+                            </div>
+                          )}
+                      </div>
+                    </>
+                )}
+
+
               </div>
             </ScrollArea>
             <DialogFooter className="pt-4 mt-auto border-t">
@@ -538,5 +696,3 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
     </Dialog>
   );
 }
-
-    
