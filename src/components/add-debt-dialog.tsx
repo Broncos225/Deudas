@@ -46,15 +46,15 @@ import { ScrollArea } from './ui/scroll-area';
 import { useUser, useStorage } from '@/firebase';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 import { v4 as uuidv4 } from 'uuid';
+import { Combobox } from './ui/combobox';
 
 const debtFormSchema = z.object({
-  debtorId: z.string({ required_error: "Debes seleccionar un deudor." }),
+  debtorId: z.string({ required_error: "Debes seleccionar o crear un deudor." }),
   concept: z.string().min(3, { message: "El concepto debe tener al menos 3 caracteres." }),
   description: z.string().optional(),
   amount: z.coerce.number().positive({ message: "El monto debe ser positivo." }),
   currency: z.string({ required_error: "Se requiere una divisa." }),
   type: z.enum(["iou", "uome"], { required_error: "Debes seleccionar un tipo de deuda." }),
-  categoryId: z.string().optional(),
   createdAt: z.date({ required_error: "La fecha de creación es requerida."}),
   dueDate: z.date().optional(),
   items: z.array(z.object({
@@ -67,14 +67,13 @@ type DebtFormValues = z.infer<typeof debtFormSchema>;
 
 interface AddDebtDialogProps {
   debtors: Debtor[];
-  categories?: Category[];
   debtToEdit?: Debt;
-  onAddDebt?: (newDebt: Omit<Debt, 'id' | 'payments' | 'debtorName'>) => void;
+  onAddDebt: (newDebt: Omit<Debt, 'id' | 'payments' | 'debtorName'>, debtorName?: string) => void;
   onEditDebt?: (debtId: string, updatedDebt: Partial<Omit<Debt, 'id'>>, debtorName: string) => void;
   children?: React.ReactNode;
 }
 
-export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debtToEdit, children }: AddDebtDialogProps) {
+export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, children }: AddDebtDialogProps) {
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
   const { user } = useUser();
@@ -121,7 +120,6 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debt
           amount: debtToEdit.amount,
           currency: debtToEdit.currency,
           type: debtToEdit.type,
-          categoryId: debtToEdit.categoryId || 'none',
           createdAt: debtToEdit.createdAt.toDate(),
           dueDate: debtToEdit.dueDate ? debtToEdit.dueDate.toDate() : undefined,
           items: debtToEdit.items || [],
@@ -137,7 +135,6 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debt
           createdAt: new Date(),
           dueDate: undefined,
           items: [],
-          categoryId: 'none',
         });
       }
     }
@@ -150,10 +147,8 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debt
         return;
     }
     const selectedDebtor = debtors.find(d => d.id === data.debtorId);
-    if (!selectedDebtor) {
-        toast({ variant: "destructive", title: "Error", description: "Deudor no encontrado." });
-        return;
-    }
+    // If not found, it's a new debtor by name
+    const debtorName = selectedDebtor ? selectedDebtor.name : data.debtorId;
 
     let receiptDataUrl: string | undefined = undefined;
     
@@ -188,17 +183,13 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debt
       delete baseDebtData.receiptUrl;
     }
     
-    if (baseDebtData.categoryId === undefined || baseDebtData.categoryId === 'none') {
-        delete baseDebtData.categoryId;
-    }
-    
     if (!baseDebtData.description) {
         delete baseDebtData.description;
     }
 
 
     // Shared Debt Logic
-    if (selectedDebtor.isAppUser && selectedDebtor.appUserId) {
+    if (selectedDebtor?.isAppUser && selectedDebtor?.appUserId) {
         const participants = [user.uid, selectedDebtor.appUserId].sort();
         baseDebtData.isShared = true;
         baseDebtData.userOneId = participants[0];
@@ -229,7 +220,7 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debt
     if (isEditMode && debtToEdit && onEditDebt) {
       const updatedDebt: Partial<Omit<Debt, 'id'>> = {
             ...baseDebtData,
-            debtorName: selectedDebtor.name,
+            debtorName: debtorName,
         };
         // If the contact type changes, we may need to adjust the participants list
         if (updatedDebt.isShared && updatedDebt.userOneId && updatedDebt.userTwoId) {
@@ -239,16 +230,18 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debt
             delete updatedDebt.userOneId;
             delete updatedDebt.userTwoId;
         }
-        onEditDebt(debtToEdit.id, updatedDebt, selectedDebtor.name);
-        toast({ title: "Deuda Actualizada", description: `La deuda de ${selectedDebtor.name} ha sido actualizada.` });
-    } else if (onAddDebt) {
-        onAddDebt(baseDebtData as Omit<Debt, 'id' | 'payments' | 'debtorName'>);
-        toast({ title: "Deuda Agregada", description: `Una nueva deuda para ${selectedDebtor.name} ha sido creada.` });
+        onEditDebt(debtToEdit.id, updatedDebt, debtorName);
+        toast({ title: "Deuda Actualizada", description: `La deuda de ${debtorName} ha sido actualizada.` });
+    } else {
+        onAddDebt(baseDebtData as Omit<Debt, 'id' | 'payments' | 'debtorName'>, debtorName);
+        toast({ title: "Deuda Agregada", description: `Una nueva deuda para ${debtorName} ha sido creada.` });
     }
     
     setOpen(false);
     form.reset();
   }
+
+  const debtorOptions = debtors.map(d => ({ value: d.id, label: d.name }));
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -301,18 +294,15 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debt
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Persona</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecciona una persona" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {debtors.map(debtor => (
-                            <SelectItem key={debtor.id} value={debtor.id}>{debtor.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        <Combobox
+                          options={debtorOptions}
+                          onSelect={(value, label) => field.onChange(value)}
+                          onEnter={(value) => field.onChange(value)} // Pass new name as value
+                          selectedValue={field.value}
+                          placeholder="Seleccionar o crear contacto"
+                          searchPlaceholder="Buscar contacto..."
+                          noResultsText="No se encontró. Presiona Enter para añadir."
+                        />
                       <FormMessage />
                     </FormItem>
                   )}
@@ -344,35 +334,6 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debt
                           {...field}
                         />
                       </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="categoryId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Categoría (Opcional)</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecciona una categoría" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="none">Sin Categoría</SelectItem>
-                          {(categories || []).map(category => (
-                            <SelectItem key={category.id} value={category.id}>
-                              <div className="flex items-center gap-2">
-                                <span className={cn("w-2 h-2 rounded-full", category.color)}></span>
-                                {category.name}
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -577,3 +538,5 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, categories, debt
     </Dialog>
   );
 }
+
+    

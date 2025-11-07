@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -544,6 +545,8 @@ export default function SplitBillPage() {
         return;
     }
 
+    const calculationSummary = generateSummaryText();
+
     let debtsCreatedCount = 0;
     const promises = settlements.map(async (settlement) => {
         const fromParticipant = participants.find(p => p.debtorId === settlement.fromId || p.name === settlement.from);
@@ -553,7 +556,7 @@ export default function SplitBillPage() {
         const toDebtorContact = toParticipant?.isDebtor ? debtors.find(d => d.id === toParticipant.debtorId) : null;
 
         const debtConcept = expenseTitle || `División de gastos (${totalBillAmount ? formatUserCurrency(totalBillAmount) : 'Varios'})`;
-        const debtDescription = expenseDescription || undefined;
+        const debtDescription = [expenseDescription, calculationSummary].filter(Boolean).join('\n\n---\n\n');
         
         // Case 1: Debt between two app users (current user not involved)
         if (fromDebtorContact?.isAppUser && fromDebtorContact.appUserId && 

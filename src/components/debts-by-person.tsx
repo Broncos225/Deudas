@@ -50,6 +50,7 @@ interface DebtsByPersonProps {
   onRejectDebt: (debtId: string, reason: string) => void;
   onConfirmDeletion: (debtId: string) => void;
   onCancelDeletionRequest: (debtId: string) => void;
+  onSetDebtCategory: (debtId: string, categoryId: string | null) => void;
   isLoading: boolean;
 }
 
@@ -70,6 +71,7 @@ export function DebtsByPerson({
     onRejectDebt,
     onConfirmDeletion,
     onCancelDeletionRequest,
+    onSetDebtCategory,
     isLoading
 }: DebtsByPersonProps) {
 
@@ -354,6 +356,7 @@ export function DebtsByPerson({
                                     onRejectDebt={onRejectDebt}
                                     onConfirmDeletion={onConfirmDeletion}
                                     onCancelDeletionRequest={onCancelDeletionRequest}
+                                    onSetDebtCategory={onSetDebtCategory}
                                     isLoading={isLoading}
                                     showSettled={false}
                                 />

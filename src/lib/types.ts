@@ -47,7 +47,7 @@ export interface Debt {
   currency: string;
   concept: string;
   description?: string; // Optional detailed description
-  categoryId?: string; // New field for category
+  categoryId?: string; // This will be populated on the client from DebtUserMetadata
   items?: Item[]; // Optional array for detailed items
   type: 'iou' | 'uome'; // iou: I owe you (Tú debes), uome: You owe me (Te deben)
   createdAt: Timestamp;
@@ -91,4 +91,11 @@ export interface ActivityLog {
   message: string;
   timestamp: Timestamp;
   participants: string[];
+}
+
+export interface DebtUserMetadata {
+    id: string; // Composite key: `${userId}_${debtId}`
+    userId: string;
+    debtId: string;
+    categoryId: string;
 }

@@ -2,8 +2,7 @@
 "use client";
 
 import Image from 'next/image';
-import { HandCoins, LogOut, PlusCircle, User as UserIcon, Users, Clipboard, ClipboardCheck, QrCode, Smile } from 'lucide-react';
-import { ThemeToggle } from './theme-toggle';
+import { Scale, LogOut, PlusCircle, User as UserIcon, Users, Clipboard, ClipboardCheck, QrCode, Smile, Settings } from 'lucide-react';
 import { useAuth, useUser } from '@/firebase';
 import { Button } from './ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
@@ -15,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
 import { QrCodeDialog } from './qr-code-dialog';
 import { CustomizeAvatarDialog } from './customize-avatar-dialog';
+import { SettingsDialog } from './settings-dialog';
 
 interface DashboardHeaderProps {
     addDebtDialog: ReactNode;
@@ -28,7 +28,7 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
     const [copied, setCopied] = useState(false);
     const [isQrDialogOpen, setIsQrDialogOpen] = useState(false);
     const [isAvatarDialogOpen, setIsAvatarDialogOpen] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
 
     const handleSignOut = async () => {
         if(auth) {
@@ -101,7 +101,7 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
         <>
         <header className="sticky top-0 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6 z-10">
             <a href="/" className="flex items-center gap-2 font-semibold text-lg">
-                <HandCoins className="h-6 w-6 text-primary" />
+                <Scale className="h-6 w-6 text-primary" />
                 <span className="font-headline hidden md:inline-block">Deudas</span>
             </a>
             <div className="flex w-full flex-1 items-center gap-4 md:ml-auto md:gap-2 lg:gap-4">
@@ -115,7 +115,6 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
                         <span className="hidden md:inline">Dividir Gastos</span>
                     </Link>
                 </Button>
-                <ThemeToggle />
                 {user && (
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -147,6 +146,10 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
                                 </div>
                             </div>
                             <DropdownMenuSeparator />
+                             <DropdownMenuItem onSelect={() => setIsSettingsDialogOpen(true)} className="gap-2 cursor-pointer">
+                                <Settings className="h-4 w-4" />
+                                Configuración
+                            </DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => setIsAvatarDialogOpen(true)} className="gap-2 cursor-pointer">
                                 <Smile className="h-4 w-4" />
                                 Personalizar Avatar
@@ -178,6 +181,12 @@ export default function DashboardHeader({ addDebtDialog }: DashboardHeaderProps)
                 onOpenChange={setIsAvatarDialogOpen}
                 onAvatarSave={handleAvatarUpdate}
                 currentAvatar={user.photoURL}
+            />
+        )}
+        {user && (
+           <SettingsDialog
+              open={isSettingsDialogOpen}
+              onOpenChange={setIsSettingsDialogOpen}
             />
         )}
         </>

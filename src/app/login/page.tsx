@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FirebaseError } from "firebase/app";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
-import { HandCoins } from "lucide-react";
+import { Scale } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useForm } from "react-hook-form";
@@ -84,7 +84,7 @@ export default function LoginPage() {
             <Card className="w-full max-w-sm">
                 <CardHeader className="text-center">
                     <div className="flex justify-center mb-4">
-                        <HandCoins className="h-10 w-10 text-primary" />
+                        <Scale className="h-10 w-10 text-primary" />
                     </div>
                     <CardTitle className="text-2xl">Bienvenido a Deudas</CardTitle>
                     <CardDescription>

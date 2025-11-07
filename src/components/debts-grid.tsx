@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import type { Debt, Debtor, Payment, Category } from "@/lib/types";
 import { format, isValid, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
-import { MoreHorizontal, Edit, Trash2, ArrowDownLeft, ArrowUpRight, Wallet, Loader, CheckCircle, Bell, Info, ThumbsUp, ThumbsDown, AlertTriangle, XCircle, ShieldQuestion, Tag } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, ArrowDownLeft, ArrowUpRight, Wallet, Loader, CheckCircle, Bell, Info, ThumbsUp, ThumbsDown, AlertTriangle, XCircle, ShieldQuestion, Tag, Circle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -22,6 +22,9 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent
 } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
@@ -62,6 +65,8 @@ interface DebtsGridProps {
   onRejectDebt: (debtId: string, reason: string) => void;
   onConfirmDeletion: (debtId: string) => void;
   onCancelDeletionRequest: (debtId: string) => void;
+  onSetDebtCategory: (debtId: string, categoryId: string | null) => void;
+  onViewDebt: (debt: Debt) => void;
   isLoading: boolean;
   showSettled: boolean;
 }
@@ -143,6 +148,8 @@ export function DebtsGrid({
     onRejectDebt,
     onConfirmDeletion,
     onCancelDeletionRequest,
+    onSetDebtCategory,
+    onViewDebt,
     isLoading,
     showSettled 
 }: DebtsGridProps) {
@@ -218,11 +225,15 @@ export function DebtsGrid({
 
 
         return (
-          <Card key={debt.id} className={cn(
-            "flex flex-col group hover:shadow-md transition-shadow duration-200",
-            isPending && "bg-yellow-50/50 dark:bg-yellow-900/10 border-yellow-500/50",
-            isDeletionRequested && "bg-orange-50/50 dark:bg-orange-900/10 border-orange-500/50"
-            )}>
+          <Card 
+            key={debt.id} 
+            className={cn(
+              "flex flex-col group hover:shadow-md transition-shadow duration-200 cursor-pointer",
+              isPending && "bg-yellow-50/50 dark:bg-yellow-900/10 border-yellow-500/50",
+              isDeletionRequested && "bg-orange-50/50 dark:bg-orange-900/10 border-orange-500/50"
+            )}
+            onClick={() => onViewDebt(debt)}
+          >
             <CardHeader className="flex flex-row items-start p-4">
                 <div className="grid gap-1 flex-1">
                     <CardTitle className="text-base md:text-lg flex items-center justify-between">
@@ -247,13 +258,13 @@ export function DebtsGrid({
                     </CardTitle>
                     <CardDescription className="text-sm pl-6">
                       <span className="font-semibold text-foreground">{debt.concept}</span>
-                      {debt.description && <p className="text-xs text-muted-foreground mt-1 truncate">{debt.description}</p>}
                     </CardDescription>
-                     <CardDescription className="text-sm pl-6">
+                    {debt.description && <p className="text-xs text-muted-foreground mt-1 pl-6 truncate">{debt.description}</p>}
+                    <CardDescription className="text-sm pl-6 pt-1">
                       <span className="font-semibold text-foreground">{formatCurrency(debt.amount, debt.currency)}</span>
                     </CardDescription>
                 </div>
-                <div className="ml-auto -mt-1 -mr-1">
+                <div className="ml-auto -mt-1 -mr-1" onClick={(e) => e.stopPropagation()}>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8">
@@ -263,23 +274,35 @@ export function DebtsGrid({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                             <DropdownMenuLabel>Acciones</DropdownMenuLabel>
-                             <ViewDebtDialog 
-                                debt={debt} 
-                                categories={categories}
-                                onEditPayment={onEditPayment}
-                                onDeletePayment={onDeletePayment}
-                             >
-                              <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                             <DropdownMenuItem onSelect={() => onViewDebt(debt)}>
                                 Ver Detalles
                               </DropdownMenuItem>
-                            </ViewDebtDialog>
                             {(isCreator && !isPaid && !isDeletionRequested) && (
-                                <AddDebtDialog debtToEdit={debt} debtors={debtors} categories={categories} onEditDebt={onEditDebt}>
+                                <AddDebtDialog debtToEdit={debt} debtors={debtors} onEditDebt={onEditDebt}>
                                     <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="gap-2">
                                         <Edit className="h-4 w-4" /> Editar
                                     </DropdownMenuItem>
                                 </AddDebtDialog>
                             )}
+                            <DropdownMenuSub>
+                                <DropdownMenuSubTrigger>
+                                    <Tag className="mr-2 h-4 w-4" />
+                                    <span>Asignar Categoría</span>
+                                </DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent>
+                                    <DropdownMenuItem onSelect={() => onSetDebtCategory(debt.id, null)}>
+                                        <Circle className="mr-2 h-4 w-4 text-muted-foreground" />
+                                        Sin Categoría
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    {(categories || []).map((cat) => (
+                                        <DropdownMenuItem key={cat.id} onSelect={() => onSetDebtCategory(debt.id, cat.id)}>
+                                            <span className={cn("w-2 h-2 rounded-full mr-2", cat.color)}></span>
+                                            {cat.name}
+                                        </DropdownMenuItem>
+                                    ))}
+                                </DropdownMenuSubContent>
+                            </DropdownMenuSub>
                            <DropdownMenuSeparator />
                            <DeleteDebtAlertDialog 
                                 onDelete={() => onDeleteDebt(debt.id)}
@@ -317,15 +340,17 @@ export function DebtsGrid({
                         <div className="h-5"></div>
                     )}
                 </div>
-                {isApproved && !isPaid && !isDeletionRequested && (
-                  <AddPaymentDialog debt={debt} onAddPayment={onAddPayment}>
-                    <Button variant="outline" size="sm" className="w-full sm:w-auto gap-2">
-                      <Wallet className="h-4 w-4" /> Añadir Pago
-                    </Button>
-                  </AddPaymentDialog>
-                )}
+                <div onClick={(e) => e.stopPropagation()}>
+                    {isApproved && !isPaid && !isDeletionRequested && (
+                      <AddPaymentDialog debt={debt} onAddPayment={onAddPayment}>
+                        <Button variant="outline" size="sm" className="w-full sm:w-auto gap-2">
+                          <Wallet className="h-4 w-4" /> Añadir Pago
+                        </Button>
+                      </AddPaymentDialog>
+                    )}
+                </div>
                 {canApprove && (
-                    <div className="w-full flex gap-2">
+                    <div className="w-full flex gap-2" onClick={(e) => e.stopPropagation()}>
                         <AlertDialog>
                             <AlertDialogTrigger asChild>
                                <Button variant="outline" className="w-full bg-green-500/10 border-green-500/50 text-green-700 hover:bg-green-500/20 hover:text-green-800 dark:text-green-300">
@@ -356,7 +381,7 @@ export function DebtsGrid({
                     </div>
                 )}
                 {isDeletionRequested && (
-                  <div className="w-full flex gap-2">
+                  <div className="w-full flex gap-2" onClick={(e) => e.stopPropagation()}>
                     {canConfirmDeletion ? (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
@@ -416,3 +441,4 @@ export function DebtsGrid({
     </div>
   );
 }
+

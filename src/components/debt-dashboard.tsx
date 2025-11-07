@@ -9,7 +9,7 @@ import { DebtsGrid } from '@/components/debts-grid';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowDownLeft, ArrowUpRight, LayoutGrid, List, Loader, PlusCircle, FileDown } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useFirestore, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking, useUser } from '@/firebase';
+import { useFirestore, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking, useUser, setDocumentNonBlocking } from '@/firebase';
 import { collection, doc, Timestamp, writeBatch, query, where, getDocs, addDoc, arrayUnion, deleteField, getDoc, onSnapshot } from 'firebase/firestore';
 import { DebtorDetails } from './debtor-details';
 import { DebtsByPerson } from './debts-by-person';
@@ -22,7 +22,7 @@ import { FirestorePermissionError } from '@/firebase/errors';
 import { DebtsChart } from './debts-chart';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 import { DebtsList } from './debts-list';
-import { DebtFilters, type Filters } from './debt-filters';
+import { DebtFilters, type Filters, type SortOrder } from './debt-filters';
 import { exportToCSV, exportToPDF } from '@/lib/export';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { ActivityFeed } from './activity-feed';
@@ -52,8 +52,10 @@ export default function DebtDashboard() {
   const [activeTab, setActiveTab] = useState("overview");
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState<SortOrder>('createdAt_asc');
   const [filters, setFilters] = useState<Filters>({
-    type: 'all',
+    types: ['iou', 'uome'],
+    statuses: ['approved', 'pending', 'rejected'],
     debtorId: 'all',
     categoryId: 'all',
     date: { from: undefined, to: undefined },
@@ -108,19 +110,35 @@ const createEditActivityLog = (
     addActivityLog(message, debt.id, debt.participants, user.photoURL);
 };
 
-const handleAddDebt = useCallback((newDebt: Omit<Debt, 'id' | 'payments' | 'debtorName'>) => {
+const handleAddDebt = useCallback(async (newDebtData: Omit<Debt, 'id' | 'payments' | 'debtorName'>, debtorName: string) => {
     if (!firestore || !user || !debtors) return;
-    const debtor = debtors.find(d => d.id === newDebt.debtorId);
-    if (!debtor) return;
+
+    let debtorId = newDebtData.debtorId;
+    let debtor = debtors.find(d => d.id === debtorId);
+
+    // If debtor not found by ID, it means it's a new one by name
+    if (!debtor) {
+        const newDebtor: Omit<Debtor, 'id'| 'userId'> = {
+            name: debtorName,
+            type: 'person',
+            isAppUser: false,
+        };
+        const debtorsRef = collection(firestore, 'users', user.uid, 'debtors');
+        const docRef = await addDocumentNonBlocking(debtorsRef, { ...newDebtor, userId: user.uid });
+        debtorId = docRef.id;
+    }
 
     const debtToAdd: any = {
-        ...newDebt,
-        debtorName: debtor.name,
+        ...newDebtData,
+        debtorId: debtorId,
+        debtorName: debtorName,
         payments: [],
         isSettled: false,
     };
     
-    if (debtor.isAppUser && debtor.appUserId) {
+    debtor = debtors.find(d => d.id === debtorId); // Re-fetch debtor in case it's an existing one
+
+    if (debtor?.isAppUser && debtor?.appUserId) {
         const participants = [user.uid, debtor.appUserId].sort();
         debtToAdd.isShared = true;
         debtToAdd.participants = participants;
@@ -148,7 +166,7 @@ const handleAddDebt = useCallback((newDebt: Omit<Debt, 'id' | 'payments' | 'debt
     addDocumentNonBlocking(collectionRef, debtToAdd).then(docRef => {
         if (debtToAdd.isShared && docRef && debtToAdd.participants && debtToAdd.participants.length > 0) {
             addActivityLog(
-                `${getUsername(user.email)} creó una nueva deuda compartida "${debtToAdd.concept}" con ${debtor.name} (pendiente de aprobación).`, 
+                `${getUsername(user.email)} creó una nueva deuda compartida "${debtToAdd.concept}" con ${debtorName} (pendiente de aprobación).`, 
                 docRef.id, 
                 debtToAdd.participants,
                 user.photoURL
@@ -768,16 +786,36 @@ const handleEditDebtorAndCreateMirror = async (
     }
   };
 
-  const applyFilters = useCallback((debtsToFilter: Debt[]) => {
+  const handleSetDebtCategory = (debtId: string, categoryId: string | null) => {
+    if (!firestore || !user) return;
+    const metadataId = `${user.uid}_${debtId}`;
+    const metadataRef = doc(firestore, 'debt_user_metadata', metadataId);
+
+    if (categoryId) {
+        setDocumentNonBlocking(metadataRef, {
+            userId: user.uid,
+            debtId: debtId,
+            categoryId: categoryId,
+        });
+    } else {
+        deleteDocumentNonBlocking(metadataRef);
+    }
+    toast({ title: "Categoría actualizada" });
+  };
+
+
+  const applyFiltersAndSort = useCallback((debtsToFilter: Debt[]) => {
       if (!debtsToFilter) return [];
       const query = searchQuery.toLowerCase();
-      return debtsToFilter.filter(debt => {
+      
+      const filtered = debtsToFilter.filter(debt => {
           const matchesSearch = query === "" ||
               debt.concept.toLowerCase().includes(query) ||
               debt.debtorName.toLowerCase().includes(query) ||
               (debt.items && debt.items.some(item => item.name.toLowerCase().includes(query)));
 
-          const matchesType = filters.type === 'all' || debt.type === filters.type;
+          const matchesType = filters.types.length === 0 || filters.types.includes(debt.type);
+          const matchesStatus = filters.statuses.length === 0 || filters.statuses.includes(debt.status || 'approved');
           const matchesDebtor = filters.debtorId === 'all' || debt.debtorId === filters.debtorId;
           const matchesCategory = filters.categoryId === 'all' || debt.categoryId === filters.categoryId;
           
@@ -788,27 +826,32 @@ const handleEditDebtorAndCreateMirror = async (
                 : debtDate >= filters.date.from
           );
 
-          return matchesSearch && matchesType && matchesDebtor && matchesCategory && matchesDate;
+          return matchesSearch && matchesType && matchesStatus && matchesDebtor && matchesCategory && matchesDate;
       });
-  }, [searchQuery, filters]);
+
+      return filtered.sort((a, b) => {
+          if (sortOrder === 'createdAt_asc') {
+              return a.createdAt.toMillis() - b.createdAt.toMillis();
+          } else {
+              return b.createdAt.toMillis() - a.createdAt.toMillis();
+          }
+      });
+
+  }, [searchQuery, filters, sortOrder]);
 
   const activeDebts = useMemo(() => {
     if (!debts) return [];
-    const outstandingDebts = debts.filter(d => {
-        const remaining = d.amount - d.payments.reduce((s, p) => s + p.amount, 0);
-        return remaining > 0.01 && d.status !== 'rejected';
-    });
-    return applyFilters(outstandingDebts);
-  }, [debts, applyFilters]);
+    // An active debt is one that is NOT fully paid. Status doesn't matter for this view.
+    const outstandingDebts = debts.filter(d => (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) > 0.01);
+    return applyFiltersAndSort(outstandingDebts);
+  }, [debts, applyFiltersAndSort]);
 
   const historicalDebts = useMemo(() => {
     if (!debts) return [];
-    const settledOrRejected = debts.filter(d => {
-        const remaining = d.amount - d.payments.reduce((s, p) => s + p.amount, 0);
-        return remaining <= 0.01 || d.status === 'rejected';
-    });
-    return applyFilters(settledOrRejected);
-  }, [debts, applyFilters]);
+    // A historical debt is one that IS fully paid.
+    const settledOrRejected = debts.filter(d => (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) <= 0.01);
+    return applyFiltersAndSort(settledOrRejected);
+  }, [debts, applyFiltersAndSort]);
 
 
 
@@ -849,8 +892,8 @@ const handleEditDebtorAndCreateMirror = async (
   }
   
   const addDebtDialog = (
-    <AddDebtDialog onAddDebt={handleAddDebt} onEditDebt={handleEditDebt} debtors={debtors || []} categories={categories || []}>
-        <Button size="sm" className="gap-1 bg-accent hover:bg-accent/90 text-accent-foreground text-xs md:text-sm" disabled={!debtors || debtors.length === 0}>
+    <AddDebtDialog onAddDebt={handleAddDebt} onEditDebt={handleEditDebt} debtors={debtors || []}>
+        <Button size="sm" className="gap-1 bg-accent hover:bg-accent/90 text-accent-foreground text-xs md:text-sm">
             <PlusCircle className="h-4 w-4" />
             <span className="hidden md:inline">Agregar Deuda</span>
         </Button>
@@ -869,6 +912,7 @@ const handleEditDebtorAndCreateMirror = async (
             onEditPayment={handleEditPayment}
             onDeletePayment={handleDeletePayment}
             isLoading={isLoading}
+            onViewDebt={handleViewDebt}
         />;
     }
     
@@ -886,6 +930,8 @@ const handleEditDebtorAndCreateMirror = async (
         onRejectDebt={handleRejectDebt}
         onConfirmDeletion={handleConfirmDeletion}
         onCancelDeletionRequest={handleCancelDeletionRequest}
+        onSetDebtCategory={handleSetDebtCategory}
+        onViewDebt={handleViewDebt}
         isLoading={isLoading}
         showSettled={isSettledView}
       />;
@@ -897,7 +943,6 @@ const handleEditDebtorAndCreateMirror = async (
       { value: "activity", label: "Actividad" },
       { value: "history", label: "Historial" },
       { value: "debtors", label: "Contactos" },
-      { value: "categories", label: "Categorías" },
   ];
 
 
@@ -1000,6 +1045,8 @@ const handleEditDebtorAndCreateMirror = async (
                 categories={categories || []}
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
+                sortOrder={sortOrder}
+                onSortOrderChange={setSortOrder}
               />
             )}
             <TabsContent value="overview" forceMount={activeTab === 'overview'}>
@@ -1021,6 +1068,7 @@ const handleEditDebtorAndCreateMirror = async (
                   onCancelDeletionRequest={handleCancelDeletionRequest}
                   onApproveDebt={handleApproveDebt}
                   onRejectDebt={handleRejectDebt}
+                  onSetDebtCategory={handleSetDebtCategory}
                   isLoading={isLoading}
                 />
                 <DebtsChart debts={debts || []} />
@@ -1044,9 +1092,6 @@ const handleEditDebtorAndCreateMirror = async (
                 onSyncDebts={handleSyncDebts}
                 isLoading={isLoading}
               />
-            </TabsContent>
-            <TabsContent value="categories" forceMount={activeTab === 'categories'}>
-              <CategoryManager categories={categories || []} isLoading={isLoading} />
             </TabsContent>
         </Tabs>
         {debtToView && (

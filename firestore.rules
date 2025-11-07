@@ -1,4 +1,3 @@
-
 /**
  * @file Firestore Security Rules
  * @description This ruleset enforces a combination of user-based ownership and shared access models.
@@ -6,13 +5,15 @@
  * Data Structure:
  * - User-specific data (debtors, debts, settlements, categories) is nested under `/users/{userId}`.
  * - Shared debts are stored in the top-level `/debts_shared/{debtId}` collection.
- * - Activity logs are stored in the top-level `/activity_logs/{logId}` collection.
+ * - Activity logs are stored in the top-level `/activity_logs/{logId}`.
+ * - Personal debt metadata (like categories) is in `/debt_user_metadata`.
  *
  * Key Security Decisions:
  * - User-specific data is strictly controlled by the owning user.
  * - Shared debts require a `participants` array containing the UIDs of both users.
  * - Public listing of user-specific collections is disallowed to protect privacy.
  * - Activity logs are readable by any signed-in user, createable only by the user, and listable only when filtering by user.
+ * - Debt metadata is only accessible by the user who owns it.
  *
  * Denormalization for Authorization:
  * - Shared debts use a `participants` array to simplify access control.
@@ -154,6 +155,20 @@ service cloud.firestore {
                         request.resource.data.userPhotoUrl is string);
       allow update: if false;
       allow delete: if false;
+    }
+
+    /**
+     * @description Grants the user ownership over their debt metadata documents.
+     * @path /debt_user_metadata/{metadataId}
+     * @allow (list) User 'user_abc' can list their own metadata when filtering by userId.
+     * @allow (get, create, update, delete) User 'user_abc' can manage their own metadata.
+     * @deny (all) User 'user_xyz' cannot access metadata owned by 'user_abc'.
+     * @principle Enforces strict document ownership based on the 'userId' field.
+     */
+    match /debt_user_metadata/{metadataId} {
+      allow list: if isSignedIn();
+      allow get, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create, update: if isSignedIn() && request.resource.data.userId == request.auth.uid;
     }
   }
 

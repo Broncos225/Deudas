@@ -23,10 +23,6 @@
           "type": "string",
           "description": "An optional, more detailed description of the debt."
         },
-        "categoryId": {
-          "type": "string",
-          "description": "The ID of the category this debt belongs to."
-        },
         "amount": {
           "type": "number",
           "description": "The total amount of the debt."
@@ -367,6 +363,27 @@
             "timestamp",
             "participants"
         ]
+    },
+    "DebtUserMetadata": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "Debt User Metadata",
+        "type": "object",
+        "description": "Stores user-specific metadata for a debt, like a personal category.",
+        "properties": {
+            "userId": {
+                "type": "string",
+                "description": "The ID of the user."
+            },
+            "debtId": {
+                "type": "string",
+                "description": "The ID of the debt."
+            },
+            "categoryId": {
+                "type": "string",
+                "description": "The ID of the category assigned by the user."
+            }
+        },
+        "required": ["userId", "debtId", "categoryId"]
     }
   },
   "auth": {
@@ -417,6 +434,13 @@
           "$ref": "#/entities/Category"
         },
         "description": "Stores user-defined debt categories."
+      },
+      {
+        "path": "/debt_user_metadata/{metadataId}",
+        "schema": {
+            "$ref": "#/entities/DebtUserMetadata"
+        },
+        "description": "Stores user-specific metadata for debts, such as personal categories."
       }
     ]
   }

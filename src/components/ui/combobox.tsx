@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -23,6 +24,7 @@ interface ComboboxProps {
     options: { value: string; label: string }[];
     onSelect: (value: string, label?: string) => void;
     onEnter: (value: string) => void;
+    selectedValue?: string;
     placeholder: string;
     searchPlaceholder: string;
     noResultsText: string;
@@ -32,22 +34,18 @@ export function Combobox({
     options, 
     onSelect, 
     onEnter,
+    selectedValue,
     placeholder, 
     searchPlaceholder, 
     noResultsText 
 }: ComboboxProps) {
   const [open, setOpen] = React.useState(false)
-  const [value, setValue] = React.useState("")
   const [inputValue, setInputValue] = React.useState('');
 
-  const handleSelect = (currentValue: string) => {
-    const selectedOption = options.find(option => option.value === currentValue);
-    setValue(currentValue === value ? "" : currentValue);
+  const handleSelect = (currentValue: string, label?: string) => {
     setInputValue(''); // Clear input after selection
     setOpen(false);
-    if(selectedOption) {
-        onSelect(selectedOption.value, selectedOption.label);
-    }
+    onSelect(currentValue, label);
   }
   
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -55,7 +53,7 @@ export function Combobox({
         // Find if the input value matches an option's label
         const matchingOption = options.find(option => option.label.toLowerCase() === inputValue.toLowerCase());
         if (matchingOption) {
-            handleSelect(matchingOption.value);
+            handleSelect(matchingOption.value, matchingOption.label);
         } else {
             // It's a new value
             onEnter(inputValue);
@@ -65,6 +63,11 @@ export function Combobox({
         setOpen(false);
     }
   };
+  
+  const displayLabel = selectedValue
+    ? options.find((option) => option.value === selectedValue)?.label || selectedValue
+    : placeholder;
+
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -75,14 +78,12 @@ export function Combobox({
           aria-expanded={open}
           className="w-full justify-between"
         >
-          {value
-            ? options.find((option) => option.value === value)?.label
-            : placeholder}
+          <span className="truncate">{displayLabel}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-        <Command>
+        <Command shouldFilter={false}>
           <CommandInput 
             placeholder={searchPlaceholder} 
             value={inputValue}
@@ -92,18 +93,20 @@ export function Combobox({
           <CommandList>
             <CommandEmpty>{noResultsText}</CommandEmpty>
             <CommandGroup>
-              {options.map((option) => (
+              {options
+                .filter(option => option.label.toLowerCase().includes(inputValue.toLowerCase()))
+                .map((option) => (
                 <CommandItem
                   key={option.value}
-                  value={option.label} // CommandInput filters based on this
-                  onSelect={() => {
-                    handleSelect(option.value);
+                  value={option.value}
+                  onSelect={(currentValue) => {
+                    handleSelect(currentValue, option.label);
                   }}
                 >
                   <Check
                     className={cn(
                       "mr-2 h-4 w-4",
-                      value === option.value ? "opacity-100" : "opacity-0"
+                      selectedValue === option.value ? "opacity-100" : "opacity-0"
                     )}
                   />
                   {option.label}
@@ -116,3 +119,5 @@ export function Combobox({
     </Popover>
   )
 }
+
+    

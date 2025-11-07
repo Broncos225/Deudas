@@ -23,6 +23,7 @@ import { DeleteDebtAlertDialog } from './delete-debt-alert-dialog';
 import { Card, CardContent } from './ui/card';
 import { User } from 'firebase/auth';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+import { cn } from '@/lib/utils';
 
 interface DebtsListProps {
   debts: Debt[];
@@ -34,6 +35,7 @@ interface DebtsListProps {
   onEditPayment: (debtId: string, paymentId: string, updatedPayment: Partial<Omit<Payment, 'id'>>) => void;
   onDeletePayment: (debtId: string, paymentId: string) => void;
   isLoading: boolean;
+  onViewDebt: (debt: Debt) => void;
 }
 
 const ClientFormattedDate = ({ date, prefix }: { date: string | Date | Timestamp, prefix?: string }) => {
@@ -68,7 +70,8 @@ export function DebtsList({
     onDeleteDebt, 
     onEditPayment, 
     onDeletePayment, 
-    isLoading
+    isLoading,
+    onViewDebt
 }: DebtsListProps) {
   const calculateRemaining = (debt: Debt) => debt.amount - debt.payments.reduce((sum, p) => sum + p.amount, 0);
 
@@ -83,19 +86,14 @@ export function DebtsList({
     return (
         <Card className="mt-4">
             <CardContent className="p-0">
-                <div className="space-y-2">
+                <div className="space-y-2 p-2">
                     {Array.from({ length: 5 }).map((_, i) => (
-                        <div key={i} className="grid grid-cols-[2fr,1fr,1fr,1fr,auto] gap-4 items-center p-4">
-                            <div className="flex items-center gap-2">
-                                <div className="h-4 w-4 bg-muted rounded-md animate-pulse"></div>
-                                <div className="space-y-1">
-                                    <div className="h-4 w-24 bg-muted rounded-md animate-pulse"></div>
-                                    <div className="h-3 w-16 bg-muted rounded-md animate-pulse"></div>
-                                </div>
+                        <div key={i} className="flex gap-4 items-center p-2">
+                            <div className="h-4 w-4 bg-muted rounded-md animate-pulse"></div>
+                            <div className="flex-1 space-y-1">
+                                <div className="h-4 w-3/4 bg-muted rounded-md animate-pulse"></div>
                             </div>
-                            <div className="h-4 w-20 bg-muted rounded-md animate-pulse ml-auto"></div>
-                            <div className="h-4 w-20 bg-muted rounded-md animate-pulse ml-auto"></div>
-                            <div className="h-4 w-24 bg-muted rounded-md animate-pulse mx-auto"></div>
+                            <div className="h-4 w-20 bg-muted rounded-md animate-pulse"></div>
                             <div className="h-8 w-8 bg-muted rounded-md animate-pulse"></div>
                         </div>
                     ))}
@@ -108,120 +106,107 @@ export function DebtsList({
   if (debts.length === 0) {
     return (
         <div className="text-center py-10 col-span-full">
-            <CheckCircle className="mx-auto h-12 w-12 text-green-500" />
+            <CheckCircle className="mx-auto h-12 w-12 text-muted-foreground" />
             <p className="text-muted-foreground mt-4">No se encontraron deudas.</p>
         </div>
     )
   }
 
   return (
-    <Card className="mt-4">
-        <CardContent className="p-0">
-            <div className="space-y-2">
-                {/* Header */}
-                <div className="hidden md:grid grid-cols-[2fr,1fr,1fr,1fr,auto] gap-4 items-center p-4 font-medium text-muted-foreground text-sm">
-                    <div>Concepto / Persona</div>
-                    <div className="text-right">Monto Original</div>
-                    <div className="text-right">Saldo Restante</div>
-                    <div className="text-center">Vencimiento</div>
-                    <div className="w-12"></div>
-                </div>
+    <>
+        <Card className="mt-4">
+            <CardContent className="p-0">
+                <div className="divide-y divide-border">
+                    {/* Header */}
+                    <div className="hidden md:flex items-center p-4 font-medium text-muted-foreground text-sm bg-muted/50">
+                        <div className="flex-1 min-w-0 pr-4">Concepto / Persona</div>
+                        <div className="w-32 text-right pr-4">Monto Original</div>
+                        <div className="w-32 text-right pr-4">Saldo Restante</div>
+                        <div className="w-32 text-center">Vencimiento</div>
+                        <div className="w-10"></div>
+                    </div>
 
-                {debts.map((debt) => {
-                    const remaining = calculateRemaining(debt);
-                    const isPaid = remaining <= 0.01;
-                    const isIOU = debt.type === 'iou';
-                    const isCreator = user ? user.uid === debt.userId : false;
+                    {debts.map((debt) => {
+                        const remaining = calculateRemaining(debt);
+                        const isPaid = remaining <= 0.01;
+                        const isIOU = debt.type === 'iou';
+                        const isCreator = user ? user.uid === (debt.creatorId || debt.userId) : false;
 
-                    return (
-                        <div key={debt.id} className="grid grid-cols-[1fr,auto] md:grid-cols-[2fr,1fr,1fr,1fr,auto] gap-2 md:gap-4 items-center p-4 border-b last:border-0 hover:bg-muted/50 transition-colors">
-                            {/* Mobile Header */}
-                            <div className="md:hidden col-span-2 text-xs font-medium text-muted-foreground flex justify-between">
-                                <span>Concepto</span>
-                                <span>Restante</span>
-                            </div>
-
-                            {/* Debt Info */}
-                            <div className="flex items-center gap-2">
-                                {isIOU ? <ArrowDownLeft className="h-4 w-4 text-red-500 flex-shrink-0" /> : <ArrowUpRight className="h-4 w-4 text-green-500 flex-shrink-0" />}
-                                <div>
-                                    <p className="font-semibold truncate">{debt.concept}</p>
-                                    <p className="text-sm text-muted-foreground">{debt.debtorName}</p>
+                        return (
+                            <div 
+                                key={debt.id} 
+                                className="flex items-center p-2 md:p-4 hover:bg-muted/50 transition-colors cursor-pointer"
+                                onClick={() => onViewDebt(debt)}
+                            >
+                                <div className="flex-1 flex items-center gap-2 min-w-0">
+                                    <TooltipProvider>
+                                        <Tooltip>
+                                            <TooltipTrigger>
+                                                {isIOU ? <ArrowDownLeft className="h-4 w-4 text-red-500 flex-shrink-0" /> : <ArrowUpRight className="h-4 w-4 text-green-500 flex-shrink-0" />}
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                {isIOU ? 'Tú debes' : 'Te deben'}
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="font-semibold truncate">{debt.concept}</p>
+                                        <p className="text-sm text-muted-foreground truncate">{debt.debtorName}</p>
+                                    </div>
                                 </div>
-                            </div>
-                            
-                            <div className="hidden md:block text-right">{formatCurrency(debt.amount, debt.currency)}</div>
-                            <div className="text-right font-semibold">{formatCurrency(remaining, debt.currency)}</div>
+                                
+                                <div className="hidden md:block w-32 text-right pr-4 text-sm">{formatCurrency(debt.amount, debt.currency)}</div>
+                                <div className="w-24 md:w-32 text-right pr-4 font-semibold text-sm">{formatCurrency(remaining, debt.currency)}</div>
 
-                            {/* Due Date - Mobile & Desktop */}
-                            <div className="text-xs text-muted-foreground flex items-center gap-1 col-span-2 md:col-span-1 md:text-center md:justify-center">
-                                {debt.dueDate && !isPaid ? (
-                                    <>
-                                        <Bell className="h-3 w-3" />
-                                        <ClientFormattedDate date={debt.dueDate} />
-                                    </>
-                                ) : (
-                                    <span className="hidden md:inline-block">-</span>
-                                )}
-                            </div>
+                                <div className="hidden md:flex w-32 text-center items-center justify-center text-xs text-muted-foreground gap-1">
+                                    {debt.dueDate && !isPaid && (
+                                        <>
+                                            <Bell className="h-3 w-3" />
+                                            <ClientFormattedDate date={debt.dueDate} />
+                                        </>
+                                    )}
+                                </div>
 
-                            {/* Actions */}
-                            <div className="flex justify-end col-start-2 row-start-2 md:col-start-auto md:row-start-auto">
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8">
-                                            <MoreHorizontal className="h-4 w-4" />
-                                            <span className="sr-only">Toggle menu</span>
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                        <DropdownMenuLabel>Acciones</DropdownMenuLabel>
-                                        <ViewDebtDialog debt={debt} onEditPayment={onEditPayment} onDeletePayment={onDeletePayment}>
-                                            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>Ver Detalles</DropdownMenuItem>
-                                        </ViewDebtDialog>
-                                        {!isPaid && (
-                                            <>
-                                                <AddPaymentDialog debt={debt} onAddPayment={onAddPayment}>
-                                                    <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="gap-2">
-                                                        <Wallet className="h-4 w-4" /> Añadir Pago
-                                                    </DropdownMenuItem>
-                                                </AddPaymentDialog>
-                                                <AddDebtDialog debtToEdit={debt} debtors={debtors} onEditDebt={onEditDebt}>
-                                                    <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="gap-2">
-                                                        <Edit className="h-4 w-4" /> Editar Deuda
-                                                    </DropdownMenuItem>
-                                                </AddDebtDialog>
-                                            </>
-                                        )}
-                                        <DropdownMenuSeparator />
-                                        {isCreator ? (
-                                            <DeleteDebtAlertDialog onDelete={() => onDeleteDebt(debt.id)}>
+                                <div className="w-10 flex justify-end" onClick={(e) => e.stopPropagation()}>
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8">
+                                                <MoreHorizontal className="h-4 w-4" />
+                                                <span className="sr-only">Toggle menu</span>
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                            <DropdownMenuLabel>Acciones</DropdownMenuLabel>
+                                            <DropdownMenuItem onSelect={() => onViewDebt(debt)}>Ver Detalles</DropdownMenuItem>
+                                            {!isPaid && (
+                                                <>
+                                                    <AddPaymentDialog debt={debt} onAddPayment={onAddPayment}>
+                                                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="gap-2">
+                                                            <Wallet className="h-4 w-4" /> Añadir Pago
+                                                        </DropdownMenuItem>
+                                                    </AddPaymentDialog>
+                                                    <AddDebtDialog debtToEdit={debt} debtors={debtors} onEditDebt={onEditDebt}>
+                                                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="gap-2">
+                                                            <Edit className="h-4 w-4" /> Editar Deuda
+                                                        </DropdownMenuItem>
+                                                    </AddDebtDialog>
+                                                </>
+                                            )}
+                                            <DropdownMenuSeparator />
+                                            <DeleteDebtAlertDialog onDelete={() => onDeleteDebt(debt.id)} isShared={debt.isShared ?? false}>
                                                 <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-red-500 focus:text-red-500 focus:bg-red-50 gap-2">
                                                     <Trash2 className="h-4 w-4" /> Eliminar
                                                 </DropdownMenuItem>
                                             </DeleteDebtAlertDialog>
-                                        ) : (
-                                            <TooltipProvider delayDuration={100}>
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled className="gap-2 text-muted-foreground">
-                                                            <Trash2 className="h-4 w-4" /> Eliminar
-                                                        </DropdownMenuItem>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent>
-                                                        <p>Solo el creador de la deuda puede eliminarla.</p>
-                                                    </TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
-                                        )}
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                </div>
                             </div>
-                        </div>
-                    );
-                })}
-            </div>
-        </CardContent>
-    </Card>
+                        );
+                    })}
+                </div>
+            </CardContent>
+        </Card>
+    </>
   );
 }

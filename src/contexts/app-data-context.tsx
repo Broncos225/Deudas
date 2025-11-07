@@ -2,7 +2,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, ReactNode, useCallback, useMemo, useEffect } from 'react';
-import type { Debtor, Debt, ActivityLog, Settlement, Category } from '@/lib/types';
+import type { Debtor, Debt, ActivityLog, Settlement, Category, DebtUserMetadata } from '@/lib/types';
 import { useCollection, useFirestore, useUser, useMemoFirebase, addDocumentNonBlocking } from '@/firebase';
 import { collection, query, where, Timestamp } from 'firebase/firestore';
 
@@ -65,11 +65,19 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     return collection(firestore, 'users', user.uid, 'categories');
   }, [firestore, user?.uid]);
 
+  const debtUserMetadataQuery = useMemoFirebase(() => {
+    if (!firestore || !user?.uid) return null;
+    return query(collection(firestore, 'debt_user_metadata'), where('userId', '==', user.uid));
+  }, [firestore, user?.uid]);
+
+
   const { data: debtorsData, isLoading: isLoadingDebtors } = useCollection<Debtor>(debtorsRef);
   const { data: privateDebtsData, isLoading: isLoadingPrivateDebts } = useCollection<Debt>(privateDebtsRef);
   const { data: sharedDebtsData, isLoading: isLoadingSharedDebts } = useCollection<Debt>(sharedDebtsQuery);
   const { data: settlementsData, isLoading: isLoadingSettlements } = useCollection<Settlement>(settlementsRef);
   const { data: categoriesData, isLoading: isLoadingCategories } = useCollection<Category>(categoriesRef);
+  const { data: debtUserMetadata, isLoading: isLoadingDebtUserMetadata } = useCollection<DebtUserMetadata>(debtUserMetadataQuery);
+
 
   const getUsername = (email: string | null | undefined) => {
     if (!email) return 'Usuario';
@@ -163,7 +171,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const allDebts = useMemo(() => {
     if (!user || !debtorsData) return [];
 
-    const privateDebtsList = (privateDebtsData || []).filter(d => !d.isShared);
+    const metadataMap = new Map(debtUserMetadata?.map(meta => [meta.debtId, meta.categoryId]));
+
+    const privateDebtsList = (privateDebtsData || []).map(debt => ({
+        ...debt,
+        categoryId: metadataMap.get(debt.id) || debt.categoryId,
+    })).filter(d => !d.isShared);
 
     const processedSharedDebts = (sharedDebtsData || []).map(sharedDebt => {
         const creatorId = sharedDebt.creatorId || sharedDebt.userId; 
@@ -183,6 +196,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             debtorName: localDebtorForSharedDebt?.name || `Usuario ${otherUserId?.substring(0, 5)}...`,
             debtorId: localDebtorForSharedDebt?.id || otherUserId || 'unknown_debtor',
             isCreator: isCurrentUserTheCreator,
+            categoryId: metadataMap.get(sharedDebt.id),
         };
     });
 
@@ -190,10 +204,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     const uniqueDebts = new Map(all.map(d => [d.id, d]));
     
     return Array.from(uniqueDebts.values());
-  }, [privateDebtsData, sharedDebtsData, debtorsData, user]);
+  }, [privateDebtsData, sharedDebtsData, debtorsData, user, debtUserMetadata]);
 
 
-  const isLoading = isUserLoading || isLoadingDebtors || isLoadingPrivateDebts || isLoadingSharedDebts || isLoadingSettlements || isLoadingCategories;
+  const isLoading = isUserLoading || isLoadingDebtors || isLoadingPrivateDebts || isLoadingSharedDebts || isLoadingSettlements || isLoadingCategories || isLoadingDebtUserMetadata;
 
   const value = useMemo(() => ({
     currency,
