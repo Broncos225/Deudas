@@ -75,7 +75,15 @@ export function DebtFilters({
     onSortOrderChange('createdAt_asc');
   };
 
-  const hasActiveFilters = filters.types.length < 2 || filters.statuses.length < 3 || filters.debtorId !== 'all' || filters.categoryId !== 'all' || searchQuery !== "" || filters.date.from || filters.date.to || sortOrder !== 'createdAt_asc';
+  const hasActiveFilters = 
+    filters.types.length < 2 || 
+    filters.statuses.length < 3 || 
+    filters.debtorId !== 'all' || 
+    filters.categoryId !== 'all' || 
+    searchQuery !== "" || 
+    filters.date.from || 
+    filters.date.to || 
+    sortOrder !== 'createdAt_asc';
 
   return (
     <div className="flex flex-col md:flex-row flex-wrap items-center gap-2 mt-4 p-4 bg-muted/50 rounded-lg">
@@ -98,11 +106,11 @@ export function DebtFilters({
             }}
             className="gap-1"
         >
-            <ToggleGroupItem value="iou" aria-label="Tú debes" className="data-[state=on]:bg-red-500/10 data-[state=on]:border-red-500/50 data-[state=on]:text-red-700 dark:data-[state=on]:text-red-300">
+            <ToggleGroupItem value="iou" aria-label="Tú debes" className="hover:bg-accent/50 data-[state=on]:bg-red-500/10 data-[state=on]:border-red-500/50 data-[state=on]:text-red-700 dark:data-[state=on]:text-red-300">
                 <ArrowDown className="h-3 w-3 mr-1"/>
                 Debes
             </ToggleGroupItem>
-            <ToggleGroupItem value="uome" aria-label="Te deben" className="data-[state=on]:bg-green-500/10 data-[state=on]:border-green-500/50 data-[state=on]:text-green-700 dark:data-[state=on]:text-green-300">
+            <ToggleGroupItem value="uome" aria-label="Te deben" className="hover:bg-accent/50 data-[state=on]:bg-green-500/10 data-[state=on]:border-green-500/50 data-[state=on]:text-green-700 dark:data-[state=on]:text-green-300">
                 <ArrowUp className="h-3 w-3 mr-1"/>
                 Te Deben
             </ToggleGroupItem>
@@ -117,9 +125,9 @@ export function DebtFilters({
             }}
             className="gap-1"
         >
-            <ToggleGroupItem value="approved" aria-label="Activas">Activas</ToggleGroupItem>
-            <ToggleGroupItem value="pending" aria-label="Pendientes">Pendientes</ToggleGroupItem>
-            <ToggleGroupItem value="rejected" aria-label="Rechazadas">Rechazadas</ToggleGroupItem>
+            <ToggleGroupItem value="approved" aria-label="Activas" className="hover:bg-accent/50">Activas</ToggleGroupItem>
+            <ToggleGroupItem value="pending" aria-label="Pendientes" className="hover:bg-accent/50">Pendientes</ToggleGroupItem>
+            <ToggleGroupItem value="rejected" aria-label="Rechazadas" className="hover:bg-accent/50">Rechazadas</ToggleGroupItem>
         </ToggleGroup>
         
         <div className="flex gap-2">
@@ -216,5 +224,3 @@ export function DebtFilters({
     </div>
   );
 }
-
-    

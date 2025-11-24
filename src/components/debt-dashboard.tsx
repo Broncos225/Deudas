@@ -8,7 +8,7 @@ import type { Debt, Payment, Debtor, Settlement, ActivityLog, Category } from '@
 import DashboardHeader from '@/components/dashboard-header';
 import { DebtsGrid } from '@/components/debts-grid';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowDownLeft, ArrowUpRight, LayoutGrid, List, Loader, PlusCircle, FileDown } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, LayoutGrid, List, Loader, PlusCircle, FileDown, Bell, XCircle } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFirestore, addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking, useUser, setDocumentNonBlocking } from '@/firebase';
 import { collection, doc, Timestamp, writeBatch, query, where, getDocs, addDoc, arrayUnion, deleteField, getDoc, onSnapshot } from 'firebase/firestore';
@@ -867,7 +867,7 @@ const handleEditDebtorAndCreateMirror = async (
   const historicalDebts = useMemo(() => {
     if (!debts) return [];
     // A historical debt is one that IS fully paid and not a recurring template.
-    const settledOrRejected = debts.filter(d => !d.isRecurring && (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) <= 0.01);
+    const settledOrRejected = debts.filter(d => !d.isRecurring && ((d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) <= 0.01 || d.status === 'rejected'));
     return applyFiltersAndSort(settledOrRejected);
   }, [debts, applyFiltersAndSort]);
 
@@ -876,11 +876,23 @@ const handleEditDebtorAndCreateMirror = async (
   const handleViewDebt = (debt: Debt) => {
     setDebtToView(debt);
   };
+  
+  const handleFilterClick = (status: 'pending' | 'rejected') => {
+    setFilters(prev => ({
+      ...prev,
+      statuses: [status],
+      types: ['iou', 'uome'], // Reset other filters for clarity
+      debtorId: 'all',
+      categoryId: 'all',
+      date: { from: undefined, to: undefined },
+    }));
+    setActiveTab('all-debts');
+  };
 
-  const { totalIOwe, totalOwedToMe } = useMemo(() => {
-    if (!debts) return { totalIOwe: 0, totalOwedToMe: 0 };
+  const { totalIOwe, totalOwedToMe, pendingApprovalCount, rejectedCount } = useMemo(() => {
+    if (!debts || !user) return { totalIOwe: 0, totalOwedToMe: 0, pendingApprovalCount: 0, rejectedCount: 0 };
     
-    // Only include non-template, active and approved debts for dashboard totals
+    // Totals only include non-template, active and approved debts
     const activeApprovedDebts = debts.filter(d => !d.isRecurring && d.status === 'approved');
 
     const totals = activeApprovedDebts.reduce((acc, debt) => {
@@ -896,9 +908,22 @@ const handleEditDebtorAndCreateMirror = async (
       }
       return acc;
     }, { totalIOwe: 0, totalOwedToMe: 0 });
+
+    const pending = debts.filter(d => 
+        d.isShared && 
+        d.status === 'pending' && 
+        d.participants?.includes(user.uid) && 
+        !d.approvedBy?.includes(user.uid)
+    ).length;
+
+    const rejected = debts.filter(d => 
+        d.isShared && 
+        d.status === 'rejected' && 
+        d.participants?.includes(user.uid)
+    ).length;
     
-    return totals;
-  }, [debts]);
+    return { ...totals, pendingApprovalCount: pending, rejectedCount: rejected };
+  }, [debts, user]);
 
 
   if (isUserLoading || !user) {
@@ -971,7 +996,7 @@ const handleEditDebtorAndCreateMirror = async (
     <div className="flex min-h-screen w-full flex-col bg-muted/40">
       <DashboardHeader addDebtDialog={addDebtDialog} />
       <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total que Debes (aprox. COP)</CardTitle>
@@ -998,6 +1023,29 @@ const handleEditDebtorAndCreateMirror = async (
               ) : (
                 <div className="text-2xl font-bold font-headline text-green-500">
                     {formatCurrency(totalOwedToMe, 'COP')}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+           <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Acciones Pendientes</CardTitle>
+               <Bell className="h-4 w-4 text-amber-500" />
+            </CardHeader>
+            <CardContent className="pt-2">
+              {isLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-6 w-3/4" />
+                  <Skeleton className="h-6 w-1/2" />
+                </div>
+              ) : (
+                <div className="flex items-center gap-4">
+                  <Button variant="link" className="p-0 h-auto text-base text-foreground" onClick={() => handleFilterClick('pending')}>
+                    <span className="font-bold mr-2">{pendingApprovalCount}</span> Deudas por Aprobar
+                  </Button>
+                   <Button variant="link" className="p-0 h-auto text-sm text-muted-foreground" onClick={() => handleFilterClick('rejected')}>
+                    <span className="font-semibold mr-2">{rejectedCount}</span> Deudas Rechazadas
+                  </Button>
                 </div>
               )}
             </CardContent>
@@ -1136,4 +1184,3 @@ const handleEditDebtorAndCreateMirror = async (
     </div>
   );
 }
-
