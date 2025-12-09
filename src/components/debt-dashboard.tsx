@@ -51,9 +51,9 @@ export default function DebtDashboard() {
     isLoading: isAppDataLoading,
     addActivityLog
   } = useAppData();
-  
-  const { isProcessing: isRecurringProcessing, toggleRecurrenceStatus } = useRecurringDebts(privateDebts);
 
+  const { isProcessing: isProcessingRecurring, toggleRecurrenceStatus } = useRecurringDebts(privateDebts);
+  
   const [activeTab, setActiveTab] = useState("overview");
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState("");
@@ -67,7 +67,7 @@ export default function DebtDashboard() {
   });
   const [debtToView, setDebtToView] = useState<Debt | null>(null);
 
-  const isLoading = isAppDataLoading || isRecurringProcessing;
+  const isLoading = isAppDataLoading || isProcessingRecurring;
 
   useEffect(() => {
     if (!isUserLoading && !user) {
@@ -291,7 +291,7 @@ const handleAddDebt = useCallback(async (newDebtData: Omit<Debt, 'id' | 'payment
             description: 'La otra parte debe confirmar para eliminar la deuda permanentemente.',
         });
     } else {
-        const collectionPath = debt.isRecurring ? `users/${user.uid}/debts` : `users/${user.uid}/debts`;
+        const collectionPath = `users/${user.uid}/debts`;
         const debtDocRef = doc(firestore, collectionPath, debtId);
         deleteDocumentNonBlocking(debtDocRef);
         toast({
@@ -434,93 +434,110 @@ const handleAddDebt = useCallback(async (newDebtData: Omit<Debt, 'id' | 'payment
   };
   
   const handleSettleDebts = async (debtorId: string, iouTotal: number, uomeTotal: number, currency: string) => {
+    if (!firestore || !user || !debtors) return;
+  
+    const debtor = debtors.find(d => d.id === debtorId);
+    if (!debtor || !debtor.appUserId) return;
+  
+    const participants = [user.uid, debtor.appUserId].sort();
+    const settlementId = doc(collection(firestore, 'dummy')).id;
+    
+    const newSettlement: Omit<Settlement, 'id'> = {
+      debtorId,
+      date: Timestamp.now(),
+      amountSettled: Math.min(iouTotal, uomeTotal),
+      currency,
+      proposerId: user.uid,
+      participants,
+      status: 'pending',
+    };
+  
+    const settlementRef = doc(firestore, 'settlements', settlementId);
+    setDocumentNonBlocking(settlementRef, { ...newSettlement, id: settlementId });
+  
+    toast({
+        title: "Propuesta de Cruce Enviada",
+        description: "Se ha enviado una propuesta de cruce de cuentas. La otra parte debe aprobarla.",
+    });
+  };
+
+  const handleApproveSettlement = async (settlement: Settlement) => {
     if (!firestore || !user || !debts) return;
 
     const batch = writeBatch(firestore);
-    const settlementId = doc(collection(firestore, 'dummy')).id;
-    const settlementAmount = Math.min(iouTotal, uomeTotal);
-    const settlementDate = Timestamp.now();
-    
-    const settlementPaymentId = `settle_${settlementId}`;
-    
-    const iouDebts = debts.filter(d => d.debtorId === debtorId && d.type === 'iou' && !d.isSettled);
-    const uomeDebts = debts.filter(d => d.debtorId === debtorId && d.type === 'uome' && !d.isSettled);
+    const settlementRef = doc(firestore, 'settlements', settlement.id);
+    const settlementPaymentId = doc(collection(firestore, 'dummy')).id;
 
-    let debtsToCredit: Debt[];
-    let debtsToDebit: Debt[];
+    const debtsToSettle = debts.filter(d => 
+        d.status === 'approved' && 
+        d.isShared && 
+        d.participants?.includes(settlement.proposerId) && 
+        d.participants?.includes(user.uid)
+    );
 
-    if (iouTotal > uomeTotal) {
-        debtsToDebit = iouDebts;
-        debtsToCredit = uomeDebts;
-    } else {
-        debtsToDebit = uomeDebts;
-        debtsToCredit = iouDebts;
-    }
+    let settledAmount = settlement.amountSettled;
 
-    let creditRemaining = settlementAmount;
-    for (const debt of debtsToCredit) {
-        const debtRemaining = debt.amount - debt.payments.reduce((acc, p) => acc + p.amount, 0);
-        const paymentAmount = Math.min(debtRemaining, creditRemaining);
-
-        if (paymentAmount > 0) {
-            const newPayment: Payment = {
-                id: `${settlementPaymentId}_${debt.id}`,
-                amount: paymentAmount,
-                date: settlementDate,
-                isSettlement: true,
-                settlementId: settlementId,
-            };
-            const collectionPath = debt.isShared ? 'debts_shared' : `users/${user.uid}/debts`;
-            const debtRef = doc(firestore, collectionPath, debt.id);
-            batch.update(debtRef, { payments: [...debt.payments, newPayment] });
-            creditRemaining -= paymentAmount;
+    const processDebts = (type: 'iou' | 'uome') => {
+        const debtsOfType = debtsToSettle.filter(d => d.type === type);
+        for (const debt of debtsOfType) {
+            if (settledAmount <= 0) break;
+            const remainingOnDebt = debt.amount - debt.payments.reduce((s, p) => s + p.amount, 0);
+            const paymentAmount = Math.min(settledAmount, remainingOnDebt);
+            
+            if (paymentAmount > 0) {
+                const payment: Payment = {
+                    id: settlementPaymentId,
+                    amount: paymentAmount,
+                    date: Timestamp.now(),
+                    isSettlement: true,
+                    settlementId: settlement.id,
+                    createdBy: user.uid,
+                };
+                const debtRef = doc(firestore, 'debts_shared', debt.id);
+                batch.update(debtRef, { payments: arrayUnion(payment) });
+                settledAmount -= paymentAmount;
+            }
         }
-    }
-
-    let debitRemaining = settlementAmount;
-    for (const debt of debtsToDebit) {
-        const debtRemaining = debt.amount - debt.payments.reduce((acc, p) => acc + p.amount, 0);
-        const paymentAmount = Math.min(debtRemaining, debitRemaining);
-
-        if (paymentAmount > 0) {
-            const newPayment: Payment = {
-                id: `${settlementPaymentId}_${debt.id}`,
-                amount: paymentAmount,
-                date: settlementDate,
-                isSettlement: true,
-                settlementId: settlementId,
-            };
-            const collectionPath = debt.isShared ? 'debts_shared' : `users/${user.uid}/debts`;
-            const debtRef = doc(firestore, collectionPath, debt.id);
-            batch.update(debtRef, { payments: [...debt.payments, newPayment] });
-            debitRemaining -= paymentAmount;
-        }
-    }
-
-    const settlementDocRef = doc(firestore, 'users', user.uid, 'settlements', settlementId);
-    const newSettlement: Settlement = {
-        id: settlementId,
-        debtorId,
-        date: settlementDate,
-        amountSettled: settlementAmount,
-        currency,
-        userId: user.uid,
     };
-    batch.set(settlementDocRef, newSettlement);
+    
+    // Settle debts where the current user owes the proposer
+    processDebts('iou');
+    
+    settledAmount = settlement.amountSettled; // Reset settled amount for the other direction
+    
+    // Settle debts where the proposer owes the current user
+    processDebts('uome');
+
+    batch.update(settlementRef, { status: 'approved' });
 
     try {
         await batch.commit();
-    } catch (e) {
-        const error = new FirestorePermissionError({
-            path: `users/${user.uid}/settlements/${settlementId}`,
-            operation: 'write',
-            requestResourceData: { iouTotal, uomeTotal, currency, debtorId }
-        });
-        errorEmitter.emit('permission-error', error);
+        toast({ title: "Cruce Aprobado", description: "Las cuentas han sido cruzadas exitosamente." });
+    } catch (e: any) {
+        toast({ variant: 'destructive', title: "Error al Aprobar", description: e.message });
+    }
+  };
+
+  const handleRejectSettlement = (settlement: Settlement) => {
+    if (!firestore || !user) return;
+    const settlementRef = doc(firestore, 'settlements', settlement.id);
+    
+    if (settlement.status === 'pending') {
+        // Proposer is cancelling OR receiver is rejecting a pending proposal.
+        // In both cases, we delete it.
+        deleteDocumentNonBlocking(settlementRef);
+        toast({ title: 'Propuesta Cancelada' });
     }
   };
   
-  const handleReverseSettlement = async (settlement: Settlement) => {
+  const handleRequestReversal = (settlement: Settlement) => {
+      if (!firestore || !user) return;
+      const settlementRef = doc(firestore, 'settlements', settlement.id);
+      updateDocumentNonBlocking(settlementRef, { status: 'reversal_pending' });
+      toast({ title: 'Solicitud de Reversión Enviada' });
+  };
+  
+  const handleApproveReversal = async (settlement: Settlement) => {
     if (!firestore || !user || !debts) return;
   
     const batch = writeBatch(firestore);
@@ -534,18 +551,18 @@ const handleAddDebt = useCallback(async (newDebtData: Omit<Debt, 'id' | 'payment
       batch.update(debtRef, { payments: updatedPayments });
     }
   
-    const settlementRef = doc(firestore, 'users', user.uid, 'settlements', settlement.id);
+    const settlementRef = doc(firestore, 'settlements', settlement.id);
     batch.delete(settlementRef);
   
     try {
         await batch.commit();
         toast({
           title: "Cruce Revertido",
-          description: "El cruce de cuentas ha sido deshecho.",
+          description: "El cruce de cuentas ha sido deshecho exitosamente.",
         });
     } catch(e) {
         const error = new FirestorePermissionError({
-            path: `users/${user.uid}/settlements/${settlement.id}`,
+            path: `settlements/${settlement.id}`,
             operation: 'delete',
             requestResourceData: settlement
         });
@@ -812,15 +829,11 @@ const handleEditDebtorAndCreateMirror = async (
   };
 
 
-  const applyFiltersAndSort = useCallback((debtsToFilter: Debt[], excludeRecurringTemplates: boolean = false) => {
+  const applyFiltersAndSort = useCallback((debtsToFilter: Debt[]) => {
       if (!debtsToFilter) return [];
       const query = searchQuery.toLowerCase();
       
       const filtered = debtsToFilter.filter(debt => {
-          if (excludeRecurringTemplates && debt.isRecurring) {
-            return false;
-          }
-
           const matchesSearch = query === "" ||
               debt.concept.toLowerCase().includes(query) ||
               debt.debtorName.toLowerCase().includes(query) ||
@@ -853,21 +866,13 @@ const handleEditDebtorAndCreateMirror = async (
 
   const activeDebts = useMemo(() => {
     if (!debts) return [];
-    // An active debt is one that is NOT fully paid and not a recurring template
-    const outstandingDebts = debts.filter(d => !d.isRecurring && (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) > 0.01);
+    const outstandingDebts = debts.filter(d => (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) > 0.01);
     return applyFiltersAndSort(outstandingDebts);
-  }, [debts, applyFiltersAndSort]);
-
-  const recurringDebts = useMemo(() => {
-    if(!debts) return [];
-    const recurringTemplates = debts.filter(d => d.isRecurring);
-    return applyFiltersAndSort(recurringTemplates);
   }, [debts, applyFiltersAndSort]);
 
   const historicalDebts = useMemo(() => {
     if (!debts) return [];
-    // A historical debt is one that IS fully paid and not a recurring template.
-    const settledOrRejected = debts.filter(d => !d.isRecurring && ((d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) <= 0.01 || d.status === 'rejected'));
+    const settledOrRejected = debts.filter(d => (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) <= 0.01 || d.status === 'rejected');
     return applyFiltersAndSort(settledOrRejected);
   }, [debts, applyFiltersAndSort]);
 
@@ -892,8 +897,7 @@ const handleEditDebtorAndCreateMirror = async (
   const { totalIOwe, totalOwedToMe, pendingApprovalCount, rejectedCount } = useMemo(() => {
     if (!debts || !user) return { totalIOwe: 0, totalOwedToMe: 0, pendingApprovalCount: 0, rejectedCount: 0 };
     
-    // Totals only include non-template, active and approved debts
-    const activeApprovedDebts = debts.filter(d => !d.isRecurring && d.status === 'approved');
+    const activeApprovedDebts = debts.filter(d => d.status === 'approved');
 
     const totals = activeApprovedDebts.reduce((acc, debt) => {
       const rate = debt.currency === 'USD' ? 4000 : debt.currency === 'EUR' ? 4500: 1;
@@ -985,10 +989,10 @@ const handleEditDebtorAndCreateMirror = async (
   const TABS_CONFIG = [
       { value: "overview", label: "Resumen" },
       { value: "all-debts", label: "Deudas" },
-      { value: "recurring", label: "Recurrentes" },
       { value: "activity", label: "Actividad" },
       { value: "history", label: "Historial" },
       { value: "debtors", label: "Contactos" },
+      { value: "categories", label: "Categorías" },
   ];
 
 
@@ -1072,7 +1076,7 @@ const handleEditDebtorAndCreateMirror = async (
                        <TabsTrigger key={tab.value} value={tab.value}>{tab.label}</TabsTrigger>
                     ))}
                 </TabsList>
-                {(activeTab === 'all-debts' || activeTab === 'history' || activeTab === 'recurring') && (
+                {(activeTab === 'all-debts' || activeTab === 'history') && (
                     <div className="flex items-center gap-2">
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -1106,7 +1110,7 @@ const handleEditDebtorAndCreateMirror = async (
                     </div>
                 )}
             </div>
-             {(activeTab === 'all-debts' || activeTab === 'history' || activeTab === 'recurring') && (
+             {(activeTab === 'all-debts' || activeTab === 'history') && (
               <DebtFilters
                 filters={filters}
                 onFilterChange={setFilters}
@@ -1122,7 +1126,7 @@ const handleEditDebtorAndCreateMirror = async (
               <div className="space-y-4">
                 <DebtsByPerson
                   user={user}
-                  debts={debts.filter(d => !d.isRecurring)}
+                  debts={debts}
                   debtors={debtors || []}
                   categories={categories || []}
                   settlements={settlements || []}
@@ -1132,24 +1136,24 @@ const handleEditDebtorAndCreateMirror = async (
                   onEditPayment={handleEditPayment}
                   onDeletePayment={handleDeletePayment}
                   onSettleDebts={handleSettleDebts}
-                  onReverseSettlement={handleReverseSettlement}
-                  onConfirmDeletion={handleConfirmDeletion}
-                  onCancelDeletionRequest={handleCancelDeletionRequest}
+                  onApproveSettlement={handleApproveSettlement}
+                  onRejectSettlement={handleRejectSettlement}
+                  onRequestReversal={handleRequestReversal}
+                  onApproveReversal={handleApproveReversal}
                   onApproveDebt={handleApproveDebt}
                   onRejectDebt={handleRejectDebt}
+                  onConfirmDeletion={handleConfirmDeletion}
+                  onCancelDeletionRequest={handleCancelDeletionRequest}
                   onSetDebtCategory={handleSetDebtCategory}
                   onViewDebt={handleViewDebt}
                   isLoading={isLoading}
                   onToggleRecurrence={toggleRecurrenceStatus}
                 />
-                <DebtsChart debts={debts.filter(d => !d.isRecurring)} />
+                <DebtsChart debts={debts} />
               </div>
             </TabsContent>
             <TabsContent value="all-debts" forceMount={activeTab === 'all-debts'}>
               {renderContentForDebts(activeDebts, false)}
-            </TabsContent>
-            <TabsContent value="recurring" forceMount={activeTab === 'recurring'}>
-              {renderContentForDebts(recurringDebts, false)}
             </TabsContent>
             <TabsContent value="activity" forceMount={activeTab === 'activity'}>
               <ActivityFeed debts={debts} debtors={debtors || []} onViewDebt={handleViewDebt}/>
@@ -1166,6 +1170,9 @@ const handleEditDebtorAndCreateMirror = async (
                 onSyncDebts={handleSyncDebts}
                 isLoading={isLoading}
               />
+            </TabsContent>
+             <TabsContent value="categories" forceMount={activeTab === 'categories'}>
+              <CategoryManager categories={categories || []} isLoading={isLoading} />
             </TabsContent>
         </Tabs>
         {debtToView && (
@@ -1184,3 +1191,4 @@ const handleEditDebtorAndCreateMirror = async (
     </div>
   );
 }
+

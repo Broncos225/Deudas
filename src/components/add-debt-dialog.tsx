@@ -33,7 +33,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { FileImage, PlusCircle, Calendar as CalendarIcon, Trash2, ArrowDownLeft, ArrowUpRight, Repeat } from "lucide-react";
+import { FileImage, PlusCircle, Calendar as CalendarIcon, Trash2, ArrowDownLeft, ArrowUpRight, Repeat, Calculator } from "lucide-react";
 import type { Debt, Debtor, Category, Recurrence } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { fileToDataUrl } from '@/lib/utils';
@@ -91,6 +91,15 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
   const isEditMode = !!debtToEdit;
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
+  // --- Calculator State ---
+  const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
+  const [calculatorState, setCalculatorState] = useState({
+    displayValue: '0',
+    previousValue: null as number | null,
+    operator: null as string | null,
+    waitingForOperand: false,
+  });
+
   const form = useForm<DebtFormValues>({
     resolver: zodResolver(debtFormSchema),
     defaultValues: {
@@ -108,6 +117,82 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
       }
     }
   });
+
+  // --- Calculator Logic ---
+  const handleCalculatorInput = (input: string) => {
+    setCalculatorState((prevState) => {
+      if (prevState.displayValue === 'Error') {
+        return { ...prevState, displayValue: input, waitingForOperand: false };
+      }
+      if (input === '.') {
+        if (prevState.waitingForOperand) return { ...prevState, displayValue: '0.', waitingForOperand: false };
+        if (prevState.displayValue.includes('.')) return prevState;
+        return { ...prevState, displayValue: prevState.displayValue + '.' };
+      }
+      if (prevState.waitingForOperand) {
+        return { ...prevState, displayValue: input, waitingForOperand: false };
+      } else {
+        const newDisplayValue = prevState.displayValue === '0' ? input : prevState.displayValue + input;
+        return { ...prevState, displayValue: newDisplayValue };
+      }
+    });
+  };
+
+  const performCalculation = (prev: number, current: number, op: string): number => {
+    switch (op) {
+      case '+': return prev + current;
+      case '-': return prev - current;
+      case '*': return prev * current;
+      case '/': return current === 0 ? Infinity : prev / current;
+      default: return current;
+    }
+  };
+
+  const handleCalculatorOperation = (nextOperator: string) => {
+    setCalculatorState((prevState) => {
+      const inputValue = parseFloat(prevState.displayValue);
+      if (isNaN(inputValue) || prevState.displayValue === 'Error') return prevState;
+      let newPreviousValue = prevState.previousValue;
+      if (newPreviousValue === null) {
+        newPreviousValue = inputValue;
+      } else if (prevState.operator && !prevState.waitingForOperand) {
+        const result = performCalculation(newPreviousValue, inputValue, prevState.operator);
+        if (!isFinite(result)) {
+          return { displayValue: 'Error', previousValue: null, operator: null, waitingForOperand: true };
+        }
+        newPreviousValue = result;
+      }
+      return { displayValue: String(newPreviousValue), previousValue: newPreviousValue, operator: nextOperator, waitingForOperand: true };
+    });
+  };
+
+  const handleCalculatorEquals = () => {
+    setCalculatorState((prevState) => {
+      const { operator, previousValue, displayValue } = prevState;
+      const inputValue = parseFloat(displayValue);
+      if (operator && previousValue !== null) {
+        const result = performCalculation(previousValue, inputValue, operator);
+        if (!isFinite(result)) {
+          return { displayValue: 'Error', previousValue: null, operator: null, waitingForOperand: true };
+        }
+        return { displayValue: String(result), previousValue: null, operator: null, waitingForOperand: true };
+      }
+      return prevState;
+    });
+  };
+
+  const handleCalculatorClear = () => {
+    setCalculatorState({ displayValue: '0', previousValue: null, operator: null, waitingForOperand: false });
+  };
+
+  const handleCalculatorApply = () => {
+    const finalValue = parseFloat(calculatorState.displayValue);
+    if (!isNaN(finalValue) && isFinite(finalValue)) {
+      form.setValue('amount', finalValue, { shouldValidate: true });
+    }
+    setIsCalculatorOpen(false);
+  };
+  // --- End Calculator Logic ---
 
   const { fields, append, remove } = useFieldArray({
     control: form.control,
@@ -139,6 +224,7 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
   useEffect(() => {
     if (open) {
       setSelectedFile(null);
+      handleCalculatorClear(); // Reset calculator on open
       if (isEditMode && debtToEdit) {
         form.reset({
           debtorId: debtToEdit.debtorId,
@@ -450,17 +536,53 @@ export function AddDebtDialog({ onAddDebt, onEditDebt, debtors, debtToEdit, chil
                 </div>
 
 
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <FormField
                     control={form.control}
                     name="amount"
                     render={({ field }) => (
-                        <FormItem className="col-span-2">
-                        <FormLabel>Monto</FormLabel>
-                        <FormControl>
-                            <Input type="number" placeholder="100.00" {...field} disabled={hasItems} />
-                        </FormControl>
-                        <FormMessage />
+                        <FormItem>
+                            <FormLabel>Monto</FormLabel>
+                            <div className="flex items-center gap-2">
+                                <FormControl>
+                                    <Input type="number" placeholder="100.00" {...field} disabled={hasItems} />
+                                </FormControl>
+                                <Popover open={isCalculatorOpen} onOpenChange={setIsCalculatorOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button type="button" variant="outline" size="icon" aria-label="Abrir calculadora" disabled={hasItems}>
+                                            <Calculator className="h-4 w-4" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-64 p-2">
+                                        <div className="space-y-2">
+                                            <div className="rounded-md border bg-muted p-2 text-right text-2xl font-mono h-12 flex items-center justify-end break-all">
+                                                {calculatorState.displayValue}
+                                            </div>
+                                            <div className="grid grid-cols-4 gap-2">
+                                                <Button type="button" variant="outline" className="col-span-3" onClick={handleCalculatorClear}>C</Button>
+                                                <Button type="button" variant="outline" onClick={() => handleCalculatorOperation('/')}>÷</Button>
+                                                <Button type="button" variant="secondary" onClick={() => handleCalculatorInput('7')}>7</Button>
+                                                <Button type="button" variant="secondary" onClick={() => handleCalculatorInput('8')}>8</Button>
+                                                <Button type="button" variant="secondary" onClick={() => handleCalculatorInput('9')}>9</Button>
+                                                <Button type="button" variant="outline" onClick={() => handleCalculatorOperation('*')}>×</Button>
+                                                <Button type="button" variant="secondary" onClick={() => handleCalculatorInput('4')}>4</Button>
+                                                <Button type="button" variant="secondary" onClick={() => handleCalculatorInput('5')}>5</Button>
+                                                <Button type="button" variant="secondary" onClick={() => handleCalculatorInput('6')}>6</Button>
+                                                <Button type="button" variant="outline" onClick={() => handleCalculatorOperation('-')}>-</Button>
+                                                <Button type="button" variant="secondary" onClick={() => handleCalculatorInput('1')}>1</Button>
+                                                <Button type="button" variant="secondary" onClick={() => handleCalculatorInput('2')}>2</Button>
+                                                <Button type="button" variant="secondary" onClick={() => handleCalculatorInput('3')}>3</Button>
+                                                <Button type="button" variant="outline" onClick={() => handleCalculatorOperation('+')}>+</Button>
+                                                <Button type="button" variant="secondary" className="col-span-2" onClick={() => handleCalculatorInput('0')}>0</Button>
+                                                <Button type="button" variant="secondary" onClick={() => handleCalculatorInput('.')}>.</Button>
+                                                <Button type="button" variant="default" onClick={handleCalculatorEquals}>=</Button>
+                                            </div>
+                                            <Button type="button" className="w-full" onClick={handleCalculatorApply}>Aplicar al Gasto</Button>
+                                        </div>
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                            <FormMessage />
                         </FormItem>
                     )}
                     />

@@ -13,7 +13,7 @@ export interface Payment {
   receiptUrl?: string;
   isSettlement?: boolean; // Flag to identify settlement payments
   settlementId?: string;    // ID of the settlement event
-  createdBy?: string; // UID of the user who added the payment
+  createdBy: string;
 }
 
 export interface Debtor {
@@ -40,14 +40,15 @@ export interface Category {
 }
 
 export interface Recurrence {
-    frequency: 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly';
+    frequency: "daily" | "weekly" | "biweekly" | "monthly" | "yearly";
     endDate?: Timestamp;
     nextOccurrenceDate: Timestamp;
     lastGeneratedDate?: Timestamp;
     status: 'active' | 'paused';
-    dayOfMonth?: number; // For monthly recurrence
-    activeDebtId?: string; // ID of the currently active generated debt instance
+    dayOfMonth?: number;
+    activeDebtId?: string;
 }
+
 
 export interface Debt {
   id: string;
@@ -81,10 +82,10 @@ export interface Debt {
   // Deletion system fields
   deletionStatus?: 'none' | 'requested';
   deletionRequestedBy?: string;
-  // Recurring debt fields
-  isRecurring?: boolean; // Is this a recurring debt template?
-  recurrence?: Recurrence; // Recurrence rule
-  generatedFromRecurringId?: string; // ID of the template it was generated from
+  // Recurring Debts
+  isRecurring?: boolean;
+  recurrence?: Recurrence;
+  generatedFromRecurringId?: string; // ID of the template that generated this debt
 }
 
 export interface Settlement {
@@ -93,7 +94,9 @@ export interface Settlement {
     date: Timestamp;
     amountSettled: number;
     currency: string;
-    userId: string;
+    proposerId: string;
+    participants: string[];
+    status: 'pending' | 'approved' | 'rejected' | 'reversal_pending';
 }
 
 export interface ActivityLog {

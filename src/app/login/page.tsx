@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useAuth, useUser } from "@/firebase";
@@ -51,25 +50,44 @@ export default function LoginPage() {
             await signInWithEmailAndPassword(auth, email, data.password);
             router.push('/');
         } catch (error) {
-            if (error instanceof FirebaseError && (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found')) {
-                // User does not exist, try to create a new one
-                try {
-                    await createUserWithEmailAndPassword(auth, email, data.password);
-                    router.push('/');
-                } catch (signUpError) {
-                    console.error("Error signing up", signUpError);
-                    toast({
-                        variant: "destructive",
-                        title: "Error de registro",
-                        description: "No se pudo crear la cuenta. Por favor, inténtalo de nuevo.",
-                    });
+            if (error instanceof FirebaseError) {
+                switch (error.code) {
+                    case 'auth/user-not-found':
+                        // User does not exist, try to create a new one
+                        try {
+                            await createUserWithEmailAndPassword(auth, email, data.password);
+                            router.push('/');
+                        } catch (signUpError) {
+                            console.error("Error signing up", signUpError);
+                            toast({
+                                variant: "destructive",
+                                title: "Error de registro",
+                                description: "No se pudo crear la cuenta. Por favor, inténtalo de nuevo.",
+                            });
+                        }
+                        break;
+                    case 'auth/wrong-password':
+                    case 'auth/invalid-credential':
+                        toast({
+                            variant: "destructive",
+                            title: "Error de inicio de sesión",
+                            description: "La contraseña es incorrecta. Por favor, inténtalo de nuevo.",
+                        });
+                        break;
+                    default:
+                        console.error("Error signing in", error);
+                        toast({
+                            variant: "destructive",
+                            title: "Error de inicio de sesión",
+                            description: "Ocurrió un error inesperado. Por favor, inténtalo de nuevo.",
+                        });
                 }
             } else {
-                console.error("Error signing in", error);
-                toast({
+                console.error("Unexpected error", error);
+                 toast({
                     variant: "destructive",
-                    title: "Error de inicio de sesión",
-                    description: "Usuario o contraseña incorrectos. Por favor, inténtalo de nuevo.",
+                    title: "Error Inesperado",
+                    description: "Ocurrió un error. Por favor, inténtalo de nuevo.",
                 });
             }
         }

@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useMemo } from 'react';
@@ -7,7 +8,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { DebtsGrid } from './debts-grid';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Scale, Trash2, Loader, Clipboard } from 'lucide-react';
+import { Scale, Trash2, Loader, Clipboard, ThumbsUp, CircleX } from 'lucide-react';
 import { SettleDebtsDialog } from './settle-debts-dialog';
 import { format, isValid } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -45,7 +46,10 @@ interface DebtsByPersonProps {
   onEditPayment: (debtId: string, paymentId: string, updatedPayment: Partial<Omit<Payment, 'id'>>) => void;
   onDeletePayment: (debtId: string, paymentId: string) => void;
   onSettleDebts: (debtorId: string, iouTotal: number, uomeTotal: number, currency: string) => void;
-  onReverseSettlement: (settlement: Settlement) => void;
+  onApproveSettlement: (settlement: Settlement) => void;
+  onRejectSettlement: (settlement: Settlement) => void;
+  onRequestReversal: (settlement: Settlement) => void;
+  onApproveReversal: (settlement: Settlement) => void;
   onApproveDebt: (debtId: string) => void;
   onRejectDebt: (debtId: string, reason: string) => void;
   onConfirmDeletion: (debtId: string) => void;
@@ -68,7 +72,10 @@ export function DebtsByPerson({
     onEditPayment, 
     onDeletePayment, 
     onSettleDebts,
-    onReverseSettlement,
+    onApproveSettlement,
+    onRejectSettlement,
+    onRequestReversal,
+    onApproveReversal,
     onApproveDebt,
     onRejectDebt,
     onConfirmDeletion,
@@ -96,12 +103,12 @@ export function DebtsByPerson({
     if (!debtors || !debts) return [];
 
     const nonRejectedDebts = debts.filter(d => d.status !== 'rejected');
-    const activeDebts = nonRejectedDebts.filter(d => (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) > 0.01);
+    const activeDebts = nonRejectedDebts.filter(d => (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) > 0.01 && d.status === 'approved');
 
     return debtors.map(debtor => {
       const personDebts = activeDebts.filter(d => d.debtorId === debtor.id);
       const allPersonDebts = debts.filter(d => d.debtorId === debtor.id && d.status !== 'rejected');
-      const personSettlements = settlements.filter(s => s.debtorId === debtor.id);
+      const personSettlements = settlements.filter(s => s.participants.includes(user?.uid || '') && s.participants.includes(debtor.appUserId || ''));
       
       const totals = personDebts.reduce((acc, debt) => {
         const remaining = debt.amount - debt.payments.reduce((sum, p) => sum + p.amount, 0);
@@ -125,7 +132,7 @@ export function DebtsByPerson({
       };
     }).filter(d => d.debts.length > 0 || d.settlements.length > 0).sort((a, b) => a.name.localeCompare(b.name));
 
-  }, [debts, debtors, settlements]);
+  }, [debts, debtors, settlements, user]);
 
   const renderTotals = (totals: Record<string, number>) => {
     const entries = Object.entries(totals);
@@ -134,10 +141,6 @@ export function DebtsByPerson({
       <div key={currency}>{formatCurrency(amount, currency)}</div>
     ));
   };
-  
-  const handleReverse = (settlement: Settlement) => {
-    onReverseSettlement(settlement);
-  }
 
   const handleCopyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -234,6 +237,16 @@ export function DebtsByPerson({
       );
   }
   
+  const getStatusText = (status: Settlement['status']): string => {
+    switch (status) {
+        case 'pending': return 'Pendiente';
+        case 'approved': return 'Aprobado';
+        case 'reversal_pending': return 'Reversión Pendiente';
+        case 'rejected': return 'Rechazado';
+        default: return 'Desconocido';
+    }
+  }
+
   return (
     <Card className="mt-4">
         <CardHeader>
@@ -306,39 +319,43 @@ export function DebtsByPerson({
                         <AccordionContent>
                             {settlements.length > 0 && (
                                 <div className="mx-4 mb-4 p-3 border rounded-lg bg-muted/30">
-                                    <h4 className="font-semibold text-sm mb-2">Historial de Cruces</h4>
+                                    <h4 className="font-semibold text-sm mb-2">Propuestas de Cruce</h4>
                                     <ul className="space-y-2">
                                         {settlements.map(s => {
                                             const date = s.date instanceof Timestamp ? s.date.toDate() : new Date();
+                                            const isProposer = s.proposerId === user?.uid;
+                                            const canApprove = !isProposer && s.status === 'pending';
+                                            const canCancel = isProposer && s.status === 'pending';
+                                            const canRequestReversal = s.status === 'approved'; // Anyone can request reversal
+                                            const canApproveReversal = !isProposer && s.status === 'reversal_pending';
+
                                             return (
                                                 <li key={s.id} className="flex items-center justify-between text-xs p-2 bg-background rounded-md">
                                                     <div>
                                                         <p>Cruce de <span className="font-semibold">{formatCurrency(s.amountSettled, s.currency)}</span></p>
-                                                        <p className="text-muted-foreground">
-                                                            {isValid(date) ? format(date, "MMM d, yyyy 'a las' HH:mm", { locale: es }) : 'Fecha inválida'}
+                                                        <p className="text-muted-foreground capitalize">
+                                                            {getStatusText(s.status)}
+                                                            {' - '}
+                                                            {isValid(date) ? format(date, "MMM d, yyyy", { locale: es }) : 'Fecha inválida'}
                                                         </p>
                                                     </div>
-                                                     <AlertDialog>
-                                                        <AlertDialogTrigger asChild>
-                                                            <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500 hover:text-red-500">
-                                                                <Trash2 className="h-3 w-3" />
-                                                            </Button>
-                                                        </AlertDialogTrigger>
-                                                        <AlertDialogContent>
-                                                            <AlertDialogHeader>
-                                                                <AlertDialogTitle>¿Revertir cruce de cuentas?</AlertDialogTitle>
-                                                                <AlertDialogDescription>
-                                                                    Esta acción no se puede deshacer. Se eliminarán los abonos de cruce y las deudas volverán a su estado anterior.
-                                                                </AlertDialogDescription>
-                                                            </AlertDialogHeader>
-                                                            <AlertDialogFooter>
-                                                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                                                <AlertDialogAction onClick={() => handleReverse(s)} className="bg-destructive hover:bg-destructive/90">
-                                                                    Sí, revertir
-                                                                </AlertDialogAction>
-                                                            </AlertDialogFooter>
-                                                        </AlertDialogContent>
-                                                    </AlertDialog>
+                                                    <div className="flex gap-1">
+                                                        {canApprove && (
+                                                            <>
+                                                                <Button size="sm" className="h-7" onClick={() => onApproveSettlement(s)}><ThumbsUp className="h-3 w-3 mr-1"/>Aprobar</Button>
+                                                                <Button size="sm" variant="outline" className="h-7" onClick={() => onRejectSettlement(s)}><CircleX className="h-3 w-3 mr-1"/>Rechazar</Button>
+                                                            </>
+                                                        )}
+                                                        {canCancel && (
+                                                            <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={() => onRejectSettlement(s)}><CircleX className="h-3 w-3 mr-1"/>Cancelar</Button>
+                                                        )}
+                                                        {canRequestReversal && (
+                                                             <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={() => onRequestReversal(s)}><CircleX className="h-3 w-3 mr-1"/>Proponer Reversión</Button>
+                                                        )}
+                                                        {canApproveReversal && (
+                                                            <Button size="sm" className="h-7" onClick={() => onApproveReversal(s)}><ThumbsUp className="h-3 w-3 mr-1"/>Aprobar Reversión</Button>
+                                                        )}
+                                                    </div>
                                                 </li>
                                             )
                                         })}
@@ -381,3 +398,4 @@ export function DebtsByPerson({
     </Card>
   );
 }
+

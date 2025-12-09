@@ -274,7 +274,7 @@
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "Settlement",
         "type": "object",
-        "description": "Represents a settlement event where debts between a user and a debtor are crossed.",
+        "description": "Represents a settlement proposal or event where debts between two users are crossed.",
         "properties": {
           "id": {
             "type": "string",
@@ -282,11 +282,11 @@
           },
           "debtorId": {
             "type": "string",
-            "description": "The ID of the debtor involved in the settlement."
+            "description": "The ID of the debtor contact this settlement is with."
           },
           "date": {
             "type": "string",
-            "description": "The date when the settlement occurred.",
+            "description": "The date when the settlement was proposed.",
             "format": "date-time"
           },
           "amountSettled": {
@@ -297,13 +297,19 @@
             "type": "string",
             "description": "The currency of the settlement."
           },
-          "newDebtId": {
+          "proposerId": {
             "type": "string",
-            "description": "The ID of the new debt created for the remaining balance, if any."
+            "description": "The UID of the user who proposed the settlement."
           },
-          "userId": {
+          "participants": {
+            "type": "array",
+            "description": "An array containing the UIDs of both users involved for querying.",
+            "items": { "type": "string" }
+          },
+          "status": {
             "type": "string",
-            "description": "The ID of the user who performed the settlement."
+            "description": "The status of the settlement proposal.",
+            "enum": ["pending", "approved", "rejected", "reversal_pending"]
           }
         },
         "required": [
@@ -312,7 +318,9 @@
           "date",
           "amountSettled",
           "currency",
-          "userId"
+          "proposerId",
+          "participants",
+          "status"
         ]
     },
     "ActivityLog": {
@@ -415,11 +423,11 @@
         "description": "Stores debt records shared between two users."
       },
       {
-        "path": "/users/{userId}/settlements/{settlementId}",
+        "path": "/settlements/{settlementId}",
         "schema": {
           "$ref": "#/entities/Settlement"
         },
-        "description": "Stores the history of debt settlement events."
+        "description": "Stores debt settlement proposals and history."
       },
       {
         "path": "/activity_logs/{logId}",
@@ -445,5 +453,3 @@
     ]
   }
 }
-
-    

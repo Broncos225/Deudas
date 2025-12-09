@@ -55,9 +55,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     return q;
   }, [firestore, user?.uid]);
 
-  const settlementsRef = useMemoFirebase(() => {
+  const settlementsQuery = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
-    return collection(firestore, 'users', user.uid, 'settlements');
+    return query(collection(firestore, 'settlements'), where('participants', 'array-contains', user.uid));
   }, [firestore, user?.uid]);
 
   const categoriesRef = useMemoFirebase(() => {
@@ -74,7 +74,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const { data: debtorsData, isLoading: isLoadingDebtors } = useCollection<Debtor>(debtorsRef);
   const { data: privateDebtsData, isLoading: isLoadingPrivateDebts } = useCollection<Debt>(privateDebtsRef);
   const { data: sharedDebtsData, isLoading: isLoadingSharedDebts } = useCollection<Debt>(sharedDebtsQuery);
-  const { data: settlementsData, isLoading: isLoadingSettlements } = useCollection<Settlement>(settlementsRef);
+  const { data: settlementsData, isLoading: isLoadingSettlements } = useCollection<Settlement>(settlementsQuery);
   const { data: categoriesData, isLoading: isLoadingCategories } = useCollection<Category>(categoriesRef);
   const { data: debtUserMetadata, isLoading: isLoadingDebtUserMetadata } = useCollection<DebtUserMetadata>(debtUserMetadataQuery);
 
