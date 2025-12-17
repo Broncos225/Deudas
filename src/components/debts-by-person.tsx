@@ -1,14 +1,13 @@
 
-
 "use client";
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { Debt, Debtor, Payment, Settlement, Category } from "@/lib/types";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { DebtsGrid } from './debts-grid';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Scale, Trash2, Loader, Clipboard, ThumbsUp, CircleX } from 'lucide-react';
+import { Scale, Trash2, Loader, Clipboard, ThumbsUp, CircleX, LayoutGrid, List } from 'lucide-react';
 import { SettleDebtsDialog } from './settle-debts-dialog';
 import { format, isValid } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -32,6 +31,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { User } from 'firebase/auth';
+import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
+import { DebtsList } from './debts-list';
 
 
 interface DebtsByPersonProps {
@@ -92,6 +93,11 @@ export function DebtsByPerson({
     const d = date instanceof Timestamp ? date.toDate() : new Date(date);
     return isValid(d) ? format(d, "MMM d, yyyy", { locale: es }) : 'Fecha inválida';
   }
+  const [viewModes, setViewModes] = useState<Record<string, 'grid' | 'list'>>({});
+
+  const handleViewModeChange = (personId: string, mode: 'grid' | 'list') => {
+    setViewModes(prev => ({ ...prev, [personId]: mode }));
+  };
 
   const getUsername = (email: string | null | undefined) => {
     if (!email) return 'Usuario';
@@ -102,37 +108,44 @@ export function DebtsByPerson({
   const debtsGroupedByPerson = useMemo(() => {
     if (!debtors || !debts) return [];
 
-    const nonRejectedDebts = debts.filter(d => d.status !== 'rejected');
-    const activeDebts = nonRejectedDebts.filter(d => (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) > 0.01 && d.status === 'approved');
+    // For totals, only consider active and approved debts with a balance
+    const activeApprovedDebts = debts.filter(d => 
+        d.status === 'approved' && 
+        (d.amount - d.payments.reduce((s, p) => s + p.amount, 0)) > 0.01
+    );
 
     return debtors.map(debtor => {
-      const personDebts = activeDebts.filter(d => d.debtorId === debtor.id);
-      const allPersonDebts = debts.filter(d => d.debtorId === debtor.id && d.status !== 'rejected');
-      const personSettlements = settlements.filter(s => s.participants.includes(user?.uid || '') && s.participants.includes(debtor.appUserId || ''));
-      
-      const totals = personDebts.reduce((acc, debt) => {
-        const remaining = debt.amount - debt.payments.reduce((sum, p) => sum + p.amount, 0);
+        // For the list inside the accordion, show pending, rejected, or debts with a balance
+        const relevantPersonDebts = debts.filter(d => {
+            if (d.debtorId !== debtor.id) return false;
+            const remaining = d.amount - d.payments.reduce((s, p) => s + p.amount, 0);
+            return remaining > 0.01 || d.status === 'pending' || d.status === 'rejected';
+        });
+
+        const personActiveDebts = activeApprovedDebts.filter(d => d.debtorId === debtor.id);
+        const personSettlements = settlements.filter(s => s.participants.includes(user?.uid || '') && s.participants.includes(debtor.appUserId || ''));
         
-        if (remaining > 0) { 
-            if (debt.type === 'iou') {
-              acc.iou[debt.currency] = (acc.iou[debt.currency] || 0) + remaining;
-            } else {
-              acc.uome[debt.currency] = (acc.uome[debt.currency] || 0) + remaining;
+        const totals = personActiveDebts.reduce((acc, debt) => {
+            const remaining = debt.amount - debt.payments.reduce((sum, p) => sum + p.amount, 0);
+            if (remaining > 0) { 
+                if (debt.type === 'iou') {
+                    acc.iou[debt.currency] = (acc.iou[debt.currency] || 0) + remaining;
+                } else {
+                    acc.uome[debt.currency] = (acc.uome[debt.currency] || 0) + remaining;
+                }
             }
-        }
-        return acc;
-      }, { iou: {} as Record<string, number>, uome: {} as Record<string, number> });
+            return acc;
+        }, { iou: {} as Record<string, number>, uome: {} as Record<string, number> });
 
-      return {
-        ...debtor,
-        debts: personDebts,
-        allDebts: allPersonDebts,
-        settlements: personSettlements,
-        totals,
-      };
-    }).filter(d => d.debts.length > 0 || d.settlements.length > 0).sort((a, b) => a.name.localeCompare(b.name));
+        return {
+            ...debtor,
+            allDebts: relevantPersonDebts, // Use the filtered list here
+            settlements: personSettlements,
+            totals,
+        };
+    }).filter(d => d.allDebts.length > 0 || d.settlements.length > 0).sort((a, b) => a.name.localeCompare(b.name));
 
-  }, [debts, debtors, settlements, user]);
+}, [debts, debtors, settlements, user]);
 
   const renderTotals = (totals: Record<string, number>) => {
     const entries = Object.entries(totals);
@@ -247,6 +260,46 @@ export function DebtsByPerson({
     }
   }
 
+  const renderDebtsForPerson = (personDebts: Debt[], personId: string) => {
+    const viewMode = viewModes[personId] || 'grid';
+    
+    if (viewMode === 'list') {
+        return <DebtsList
+            debts={personDebts}
+            debtors={debtors}
+            user={user}
+            onAddPayment={onAddPayment}
+            onEditDebt={onEditDebt}
+            onDeleteDebt={onDeleteDebt}
+            onEditPayment={onEditPayment}
+            onDeletePayment={onDeletePayment}
+            isLoading={isLoading}
+            onViewDebt={onViewDebt}
+        />;
+    }
+    
+    return <DebtsGrid 
+        debts={personDebts}
+        debtors={debtors}
+        categories={categories}
+        user={user}
+        onAddPayment={onAddPayment} 
+        onEditDebt={onEditDebt}
+        onDeleteDebt={onDeleteDebt}
+        onEditPayment={onEditPayment}
+        onDeletePayment={onDeletePayment}
+        onApproveDebt={onApproveDebt}
+        onRejectDebt={onRejectDebt}
+        onConfirmDeletion={onConfirmDeletion}
+        onCancelDeletionRequest={onCancelDeletionRequest}
+        onSetDebtCategory={onSetDebtCategory}
+        onViewDebt={onViewDebt}
+        isLoading={isLoading}
+        showSettled={true} // Mostrar saldadas dentro del resumen
+        onToggleRecurrence={onToggleRecurrence}
+      />;
+  };
+
   return (
     <Card className="mt-4">
         <CardHeader>
@@ -256,14 +309,13 @@ export function DebtsByPerson({
         <CardContent>
             {debtsGroupedByPerson.length > 0 ? (
                 <Accordion type="multiple" className="w-full">
-                {debtsGroupedByPerson.map(({ id, name, debts: personDebts, allDebts, settlements, totals }) => {
+                {debtsGroupedByPerson.map(({ id, name, allDebts, settlements, totals }) => {
                     const iouCurrencies = Object.keys(totals.iou);
                     const uomeCurrencies = Object.keys(totals.uome);
                     const canSettle = iouCurrencies.length === 1 && uomeCurrencies.length === 1 && iouCurrencies[0] === uomeCurrencies[0] && totals.iou[iouCurrencies[0]] > 0 && totals.uome[uomeCurrencies[0]] > 0;
                     const currency = canSettle ? iouCurrencies[0] : '';
                     const iouTotal = canSettle ? totals.iou[currency] : 0;
                     const uomeTotal = canSettle ? totals.uome[currency] : 0;
-                    const userName = getUsername(user?.email);
 
                     return (
                         <AccordionItem value={id} key={id}>
@@ -363,26 +415,23 @@ export function DebtsByPerson({
                                 </div>
                             )}
                             <div className="px-4 pb-4">
-                                <DebtsGrid
-                                    debts={personDebts}
-                                    debtors={debtors}
-                                    categories={categories}
-                                    user={user}
-                                    onAddPayment={onAddPayment}
-                                    onEditDebt={onEditDebt}
-                                    onDeleteDebt={onDeleteDebt}
-                                    onEditPayment={onEditPayment}
-                                    onDeletePayment={onDeletePayment}
-                                    onApproveDebt={onApproveDebt}
-                                    onRejectDebt={onRejectDebt}
-                                    onConfirmDeletion={onConfirmDeletion}
-                                    onCancelDeletionRequest={onCancelDeletionRequest}
-                                    onSetDebtCategory={onSetDebtCategory}
-                                    onViewDebt={onViewDebt}
-                                    isLoading={isLoading}
-                                    showSettled={false}
-                                    onToggleRecurrence={onToggleRecurrence}
-                                />
+                                <div className="flex justify-end mb-4">
+                                  <ToggleGroup
+                                      type="single"
+                                      value={viewModes[id] || 'grid'}
+                                      onValueChange={(value) => value && handleViewModeChange(id, value as 'grid' | 'list')}
+                                      className="gap-1"
+                                      size="sm"
+                                  >
+                                      <ToggleGroupItem value="grid" aria-label="Grid view">
+                                          <LayoutGrid className="h-4 w-4" />
+                                      </ToggleGroupItem>
+                                      <ToggleGroupItem value="list" aria-label="List view">
+                                          <List className="h-4 w-4" />
+                                      </ToggleGroupItem>
+                                  </ToggleGroup>
+                                </div>
+                                {renderDebtsForPerson(allDebts, id)}
                             </div>
                         </AccordionContent>
                         </AccordionItem>
@@ -399,3 +448,4 @@ export function DebtsByPerson({
   );
 }
 
+    
