@@ -190,13 +190,14 @@ const handleAddDebt = useCallback(async (newDebtData: Omit<Debt, 'id' | 'payment
     const collectionPath = debt.isShared ? 'debts_shared' : `users/${user.uid}/debts`;
     const debtDocRef = doc(firestore, collectionPath, debtId);
 
-    const { debtorName: localName, ...globalUpdateData } = updatedDebt;
-
-    if (globalUpdateData.dueDate === undefined) delete globalUpdateData.dueDate;
-    if (globalUpdateData.items === undefined) delete globalUpdateData.items;
-    if (globalUpdateData.receiptUrl === undefined) delete globalUpdateData.receiptUrl;
-
-
+    const cleanUndefined = (obj: any) => {
+      Object.keys(obj).forEach(key => obj[key] === undefined && delete obj[key]);
+      return obj;
+    };
+    
+    const globalUpdateData = cleanUndefined({ ...updatedDebt });
+    delete (globalUpdateData as any).debtorName;
+    
     if (globalUpdateData.isShared && globalUpdateData.status === 'pending') {
         (globalUpdateData as any).rejectedBy = deleteField();
         (globalUpdateData as any).rejectionReason = deleteField();
@@ -350,11 +351,16 @@ const handleAddDebt = useCallback(async (newDebtData: Omit<Debt, 'id' | 'payment
     const debt = debts.find(d => d.id === debtId);
     if (!debt) return;
     
+    const paymentData: Partial<Omit<Payment, 'id'>> = { ...newPayment };
+    if (paymentData.receiptUrl === undefined) {
+      delete paymentData.receiptUrl;
+    }
+    
     const paymentToAdd: Payment = {
-      ...newPayment,
+      ...paymentData,
       id: doc(collection(firestore, 'dummy')).id,
       createdBy: user.uid,
-    };
+    } as Payment;
 
     const updatedPayments = [...debt.payments, paymentToAdd];
     const collectionPath = debt.isShared ? 'debts_shared' : `users/${user.uid}/debts`;
@@ -1191,4 +1197,8 @@ const handleEditDebtorAndCreateMirror = async (
     </div>
   );
 }
+
+
+
+
 
